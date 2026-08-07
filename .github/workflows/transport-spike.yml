@@ -56,4 +56,15 @@ jobs:
         run: dotnet restore experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj
 
       - name: Build FsWebRTC binding probe
-        run: dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee transport-build.log
+
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-build-log
+          path: transport-build.log
+          if-no-files-found: warn
