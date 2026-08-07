@@ -14,6 +14,7 @@ Dyract now has:
 - an Android FsWebRTC peer-session experiment,
 - an Android negotiation coordinator that bridges WebRTC SDP/ICE to Dyract signaling,
 - a directory-driven diagnostic harness for initiator/responder testing,
+- a standalone Android physical-device harness under `experiments/`,
 - `DirectOnly` vs `AllowRelay` policy,
 - encrypted local messages and transactional outbox.
 
@@ -36,7 +37,8 @@ The Android experiment is compile-proven against `FsWebRTC.Bindings.Maui.Android
 - connection/ICE/gathering state callbacks,
 - directory-driven offer/answer/trickle-ICE exchange,
 - remote ICE buffering until remote SDP is installed,
-- close/disposal flow for the native binding surface.
+- close/disposal flow for the native binding surface,
+- a standalone MAUI Android diagnostic application for two-device testing.
 
 Binding-specific findings are intentionally kept in the experiment rather than leaked into Dyract's shared transport API. In particular, generated Java binding shapes are treated as package-version-specific implementation details.
 
@@ -55,6 +57,7 @@ A candidate must support the following without weakening Dyract's existing secur
 9. Network-change behavior that can be observed/restarted by Dyract.
 10. A license suitable for unrestricted distribution of a general-purpose messenger.
 11. No requirement to send Dyract message plaintext or long-term private keys into third-party infrastructure.
+12. Native Android libraries suitable for current Android platform packaging requirements, including 16 KB memory page-size support where required.
 
 ## Candidate A — FsWebRTC native MAUI bindings
 
@@ -81,10 +84,30 @@ FsWebRTC.Bindings.Maui.iOS      current 0.9.3.x line
 - Native lifecycle/resource disposal must be tested carefully.
 - Android and iOS need independent physical-device validation.
 - Upgrade compatibility needs explicit testing because generated/native binding surfaces can change.
+- The Android `0.9.3.15` package currently emits `XA0141` for native `libjingle_peerconnection_so.so`: the bundled library does not satisfy Android's 16 KB page-size requirement. This warning comes from the upstream/native AAR, not Dyract code.
+
+### Android 16 KB page-size blocker
+
+The standalone Android transport harness builds successfully, but the current FsWebRTC Android AAR emits an Android tooling warning equivalent to:
+
+```text
+XA0141: Android 16 will require 16 KB page sizes; shared library
+libjingle_peerconnection_so.so does not have a 16 KB page size.
+```
+
+This warning must **not** be suppressed. It is a production-promotion blocker for the current native dependency because future/current devices using 16 KB page-size requirements must be supported correctly by a shipping messenger.
+
+Physical-device transport experiments may continue on compatible test devices because they are evaluating WebRTC reachability and DataChannel behavior, not approving the package for release. Before FsWebRTC can move from `experiments/` into a production Android transport implementation, one of the following must be demonstrated:
+
+1. an updated FsWebRTC/native libwebrtc package whose Android binaries meet the 16 KB page-size requirement;
+2. a rebuilt/verified native binding with compliant libraries; or
+3. selection of a different WebRTC implementation that satisfies the same transport/security requirements.
+
+The transport CI intentionally retains this warning so dependency upgrades can prove when the blocker is actually resolved.
 
 ### Spike position
 
-**Preferred first physical-device experiment**, not yet a production dependency.
+**Preferred first physical-device experiment, but currently blocked from production promotion by the native Android 16 KB page-size issue.**
 
 ## Candidate B — SIPSorcery
 
@@ -177,6 +200,14 @@ A / B
 
 The directory harness polls at one-second intervals by default. This is diagnostic behavior only; wake-up/background delivery and production scheduling are separate concerns.
 
+The standalone app for this flow lives at:
+
+```text
+experiments/Dyract.Transport.AndroidHarness/
+```
+
+Its target-issued pairing capability is stored in platform SecureStorage; public identity invitations, the directory origin and diagnostic STUN settings may use ordinary preferences.
+
 ## Physical-device runtime matrix
 
 Compile success is not an exit criterion. At minimum record the following on physical devices:
@@ -205,31 +236,33 @@ Do not log Peer IDs, SDP text, IP addresses, ICE candidate bodies, message conte
 
 ### 1. Android physical-device host
 
-Create a small experimental Android host that composes:
+The standalone host now composes:
 
 ```text
 FsWebRtcAndroidPeerSession
 FsWebRtcNegotiationCoordinator
 FsWebRtcDirectoryHarness
+FsWebRtcDiagnosticController
 IPeerSignalingGateway
 ```
 
-It must remain under `experiments/` and must not move the FsWebRTC package into `Dyract.App` yet.
+It remains under `experiments/` and does not move the FsWebRTC package into `Dyract.App`.
 
-The host should expose only diagnostic actions/status:
+The host currently exposes diagnostic actions/status for:
 
 ```text
 identity / peer id
 configured directory
-paired target peer
+pinned remote identity / fingerprint
+reciprocal reachability capability
 initiator / responder
 session id
 connection state
-candidate category summary
-send diagnostic frame
-last frame round-trip latency
+binary ping/pong RTT
 close / retry
 ```
+
+See `experiments/Dyract.Transport.AndroidHarness/README.md` for the two-device procedure.
 
 ### 2. Android network transitions
 
@@ -277,4 +310,5 @@ The spike is complete only when:
 7. Android ↔ iPhone succeeds or a documented blocker is identified;
 8. native lifecycle/disposal behavior survives repeated connect/close/retry cycles;
 9. the chosen library's license is acceptable;
-10. the implementation remains behind Dyract transport abstractions with no message/business logic coupled to the native library API.
+10. the selected Android native dependency satisfies current packaging/runtime requirements, including 16 KB page-size support;
+11. the implementation remains behind Dyract transport abstractions with no message/business logic coupled to the native library API.
