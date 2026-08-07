@@ -46,6 +46,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating reliable message protocol, receive idempotency, scoped ACKs, and MAUI DI"
+
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
 
