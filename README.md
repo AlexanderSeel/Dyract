@@ -4,7 +4,7 @@
 
 Dyract is an experimental privacy-first messenger for Android and iPhone built around direct peer-to-peer communication. Instead of using a central service to hold user profiles, contact lists, conversations, attachments, or message history, each Dyract installation owns a cryptographic identity and stores its data locally.
 
-The central service is intentionally narrow: it authenticates peers and holds only short-lived reachability information needed to establish a connection. Message transport should be direct whenever the network allows it.
+The central service is intentionally narrow: it authenticates peers and holds only the identity/reachability metadata needed to establish a connection. Message transport should be direct whenever the network allows it.
 
 > Dyract is currently an early implementation/protocol experiment. The security model and protocol have not been independently audited and must not yet be treated as production-grade cryptography.
 
@@ -54,7 +54,7 @@ A raw IP address is not sufficient for reliable mobile P2P communication. Cellul
 
 ## Current implementation
 
-The repository currently contains the identity/directory foundation plus the first secure presence-discovery slice:
+The repository currently contains the identity/directory foundation plus the first secure presence-discovery and server-hardening slices:
 
 - .NET 10 solution structure
 - cryptographic `dyr_...` Peer ID derived from the identity public key
@@ -63,14 +63,17 @@ The repository currently contains the identity/directory foundation plus the fir
 - signed identity lookup
 - timestamp and replay-nonce validation
 - target-signed contact capabilities bound to a specific grantee
-- signed presence publish/update
-- signed presence removal
-- 1-2 minute presence leases with automatic expiry
+- signed presence publish/update and removal
+- maximum two-minute presence leases with automatic expiry
 - candidate validation and bounded candidate count
 - capability-authorized endpoint resolution
-- in-memory prototype stores with no permanent endpoint history
+- async identity persistence abstraction
+- in-memory identity store for zero-setup local/test use
+- optional PostgreSQL identity persistence through Npgsql
+- per-client registration and peer-operation rate limits
+- 64 KiB maximum request-body protection
 - reusable .NET directory client
-- unit tests for identity, signed proofs, capabilities and presence expiry
+- unit and ASP.NET integration tests, including authorized/unauthorized resolve cases
 - GitHub Actions restore/build/test on .NET 10
 
 Still planned:
@@ -84,7 +87,9 @@ Still planned:
 - authenticated encrypted peer sessions with forward secrecy
 - APNs/FCM wake-up
 - attachments, acknowledgements and retry scheduler
-- PostgreSQL identity persistence and production rate limiting
+- Redis-backed ephemeral presence/signaling for horizontal scaling
+- PostgreSQL migration tooling rather than prototype schema bootstrap
+- production-grade abuse controls/observability
 - independent security review
 
 See [plan.md](plan.md) for the implementation roadmap and [faq.md](faq.md) for design decisions and limitations.
@@ -98,9 +103,9 @@ src/
   Dyract.Crypto/     identity key handling and signature verification
   Dyract.Protocol/   versioned wire contracts and canonical signed payloads
   Dyract.Client/     directory/capability client used by the future MAUI app
-  Dyract.Server/     minimal identity, presence and discovery service
+  Dyract.Server/     identity, presence and discovery service
 tests/
-  Dyract.Tests/      protocol, crypto and presence tests
+  Dyract.Tests/      unit + ASP.NET integration tests
 ```
 
 The MAUI project is intentionally deferred until the identity/discovery foundation is stable. This keeps the protocol/server buildable without Android/iOS workloads and lets the difficult networking/security behavior be proven before UI development starts.
@@ -108,6 +113,7 @@ The MAUI project is intentionally deferred until the identity/discovery foundati
 ## Requirements
 
 - .NET 10 SDK
+- PostgreSQL only when durable server identity persistence is enabled
 
 Later mobile development additionally requires the .NET MAUI workloads and normal Android/iOS toolchains.
 
@@ -121,11 +127,35 @@ dotnet test Dyract.slnx
 
 ## Run the directory prototype
 
+Without a database connection string the server uses its in-memory identity store:
+
 ```bash
 dotnet run --project src/Dyract.Server
 ```
 
-Current API:
+To persist peer identities in PostgreSQL, configure the standard ASP.NET Core connection string named `Dyract`, for example through an environment variable:
+
+```text
+ConnectionStrings__Dyract=Host=localhost;Port=5432;Database=dyract;Username=dyract;Password=...
+```
+
+The prototype creates the `peer_identity` table if it does not exist. This is intentionally bootstrap behavior; production deployment should replace automatic schema creation with explicit database migrations.
+
+Presence, replay nonces and registration challenges remain ephemeral even when PostgreSQL is enabled.
+
+## API limits
+
+The prototype currently applies:
+
+```text
+registration endpoints   30 requests / minute / client address
+peer operations         240 requests / minute / client address
+maximum request body     64 KiB
+```
+
+These limits are a first abuse-prevention layer, not a final DDoS strategy.
+
+## Current API
 
 ```text
 GET  /health
@@ -219,8 +249,8 @@ Before production use the project still requires, at minimum:
 3. independent cryptographic/security review,
 4. secure private-key persistence on Android/iOS,
 5. encrypted local database design,
-6. production rate limits and abuse controls,
-7. persistent identity storage,
+6. stronger abuse/DDoS controls and privacy-aware observability,
+7. explicit database migration/backup policy,
 8. transport fuzzing and replay/downgrade testing,
 9. capability revocation/rotation design,
 10. a decision on direct-only versus TURN-assisted connectivity.
