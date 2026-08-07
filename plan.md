@@ -2,451 +2,344 @@
 
 ## 1. Product goal
 
-Dyract is a direct-first, privacy-oriented messenger for Android and iPhone written primarily in C#. Each installation owns a cryptographic peer identity. Contacts, user-assigned names, conversations, messages and attachments are device-owned data. A minimal central service authenticates peers and exposes short-lived reachability/signaling metadata; it is not the message store.
+Dyract is a direct-first, privacy-oriented messenger for Android and iPhone written primarily in C#. Each installation owns a cryptographic peer identity. Contacts, locally assigned names, conversations, messages and attachments are device-owned data. A minimal central service authenticates peers and exposes short-lived reachability/signaling metadata; it is not the chat-message store.
 
-The goal is **minimum necessary infrastructure with no central conversation history**, not the unrealistic claim that a usable mobile messenger can be completely serverless.
+The target is **minimum necessary infrastructure with no central conversation history**, not the unrealistic claim that a usable mobile messenger can be completely serverless.
 
 ## 2. Architectural invariants
 
-These rules remain true unless an explicit architecture decision changes them:
-
 1. A Peer ID is an address, never a password or bearer secret.
-2. The Peer ID is derived from the identity public key.
-3. The identity private key is generated on-device and is never uploaded.
-4. Every security-sensitive directory operation is authenticated by a signature.
-5. Knowing a Peer ID must not permit impersonation or endpoint discovery.
-6. Contacts, local names, conversations and message bodies are local data.
-7. Reachability is represented by short-lived leases, not permanent IP records.
-8. Endpoint disclosure requires authorization signed by the target peer for the exact grantee.
-9. Identity pinning and reachability authorization are separate operations.
-10. Outgoing messages are committed locally before any transport attempt.
-11. Direct transport is preferred; relay is an explicit fallback mode.
-12. Wire/application protocols are versioned from the first release.
-13. Dyract uses reviewed primitives/platform cryptography rather than inventing cryptographic algorithms.
+2. Peer ID is cryptographically bound to the identity public key.
+3. Identity private keys are generated on-device and are never uploaded.
+4. Security-sensitive directory operations are authenticated by signatures.
+5. Knowing a Peer ID alone must not permit endpoint discovery.
+6. Endpoint resolution requires target-issued authorization for the exact grantee.
+7. Contacts, local names, conversations and message bodies remain local data.
+8. Reachability uses short-lived leases, not permanent IP history.
+9. Outgoing messages are committed locally before transport attempts.
+10. Direct transport is preferred; relay is an explicit optional fallback.
+11. Dyract authenticates the application peer independently of WebRTC/DTLS.
+12. Application protocols are versioned and strictly bounded.
+13. No raw peer IPs, ICE candidate strings, keys or message contents belong in ordinary diagnostics.
 
-## 3. Target architecture
+## 3. Current architecture
 
 ```text
-                         +---------------------------+
-                         |      Dyract Directory     |
-                         | ASP.NET Core / .NET 10    |
-                         +---------------------------+
-                         | identity registry         |
-                         | presence leases           |
-                         | capability verification   |
-                         | ICE signaling (*)         |
-                         | wake-up routing (*)       |
-                         | rate limiting             |
-                         +-------------+-------------+
-                                       |
-                               no chat history
-                                       |
-                      +----------------+----------------+
-                      |                                 |
-               +------+-------+                  +------+-------+
-               | Alice device |                  |  Bob device  |
-               | .NET MAUI    |                  | .NET MAUI    |
-               +------+-------+                  +------+-------+
-                      |                                 |
-               encrypted SQLite                 encrypted SQLite
-               transactional outbox             transactional outbox
-                      |                                 |
-                      +==== authenticated P2P (*) =====+
-                            ICE/STUN; optional TURN
-
-(*) implementation in progress/planned
+                       Dyract Directory
+                    ASP.NET Core / .NET 10
+                 +--------------------------+
+                 | identity registration    |
+                 | capability verification  |
+                 | short-lived presence     |
+                 | ephemeral ICE signaling  |
+                 | future wake routing      |
+                 +------------+-------------+
+                              |
+                       no chat history
+                              |
+             +----------------+----------------+
+             |                                 |
+       Android / iOS                     Android / iOS
+        .NET MAUI                         .NET MAUI
+             |                                 |
+      encrypted SQLite                  encrypted SQLite
+      durable outbox                    durable receive
+             |                                 |
+             +==== authenticated P2P channel ==+
+                    ICE/STUN; optional TURN
 ```
 
 ## 4. Repository structure
 
 ```text
-Dyract.slnx             workload-free core/server/storage/transport/test solution
-Dyract.Mobile.slnx      Android/iOS MAUI solution
+Dyract.slnx             workload-free core/server/storage/transport/tests
+Dyract.Mobile.slnx      shipping MAUI solution
+Dyract.TransportSpike.slnx
+                        Android FsWebRTC experiment
 
 src/
-  Dyract.App/           .NET MAUI Android/iOS client
-  Dyract.Client/        directory client + invitation/capability helpers
+  Dyract.App/           shipping .NET MAUI Android/iOS client
+  Dyract.Client/        directory client and orchestration
   Dyract.Core/          identity/domain primitives
-  Dyract.Crypto/        identity cryptography/signature verification
-  Dyract.Protocol/      versioned contracts + signed proof payloads
-  Dyract.Server/        identity, presence and discovery service
-  Dyract.Storage/       encrypted local SQLite repositories/outbox
-  Dyract.Transport/     replaceable direct peer transport contracts
+  Dyract.Crypto/        identity + authenticated-session crypto
+  Dyract.Protocol/      versioned wire contracts
+  Dyract.Server/        identity/presence/signaling service
+  Dyract.Storage/       encrypted SQLite + reliable outbox state
+  Dyract.Transport/     transport-independent contracts/models
 
-tests/
-  Dyract.Tests/         unit + ASP.NET integration tests
+experiments/
+  Dyract.Transport.FsWebRtcProbe/
+  Dyract.Transport.AndroidHarness/
+
+docs/
+  session-security.md
+  reliable-messaging.md
 ```
 
-## 5. Phase 0 — identity/directory bootstrap
+## 5. Phase 0 — identity and directory bootstrap
 
-**Status: implemented; production hardening remains.**
+**Status: prototype implemented; production hardening remains.**
 
 - [x] .NET 10 solution layout.
 - [x] P-256 identity generation/signing.
-- [x] Peer ID derived from public key.
+- [x] Peer ID derived from identity public key.
 - [x] Challenge/response registration.
-- [x] Signed peer lookup.
-- [x] Timestamp validation.
-- [x] Replay-nonce protection.
-- [x] Reusable directory client.
-- [x] Unit + ASP.NET integration tests.
-- [x] Request body limits and basic API rate limiting.
-- [x] Async identity persistence abstraction.
-- [x] In-memory identity persistence for local/test use.
+- [x] Signed requests with timestamps/nonces/replay protection.
+- [x] Exact-peer lookup/resolve model.
+- [x] Request-size and basic rate limits.
+- [x] In-memory identity store for local/test use.
 - [x] Optional PostgreSQL identity persistence.
-- [ ] Explicit PostgreSQL migrations instead of prototype schema bootstrap.
-- [ ] PostgreSQL integration CI.
-- [ ] Privacy-aware structured logging/metrics.
-
-### Exit criteria
-
-Met for the prototype: registered identities are cryptographically bound to their public keys; signed requests reject stale/replayed/tampered input; persistence can be in-memory or PostgreSQL.
+- [ ] Explicit PostgreSQL migrations and PostgreSQL CI.
+- [ ] Production structured logging/metrics and retention policy.
+- [ ] Horizontal scaling / Redis-backed ephemeral state.
 
 ## 6. Phase 1 — contact authorization and presence
 
-**Status: prototype complete with HTTP authorization coverage.**
-
-### Capability
-
-```text
-ContactCapability
-  Version
-  IssuerPeerId
-  GranteePeerId
-  CapabilityId
-  IssuedUnixSeconds
-  ExpiresUnixSeconds
-  Signature
-```
-
-The target signs the capability for one exact grantee. The server verifies it during resolve without storing a friendship/contact graph.
-
-- [x] Target-signed capability generation.
-- [x] Capability bound to issuer and exact grantee.
-- [x] Capability expiry verification.
-- [x] Wrong-grantee rejection.
-- [x] Mobile import verification against pinned issuer key.
-- [x] Versioned `dyract://pair/v1/...` representation.
-- [ ] Explicit pre-expiry revocation/rotation mechanism.
-
-### Presence
-
-```text
-PeerPresence
-  PeerId
-  connection candidates
-  published at
-  expires at
-```
-
-- [x] Signed publish/update.
-- [x] Signed removal.
-- [x] Maximum two-minute lease.
-- [x] Automatic expiry.
-- [x] No permanent endpoint/IP history in prototype store.
-- [x] Candidate validation/count limits.
-- [x] Capability-protected `/api/v1/peer/resolve`.
-- [x] HTTP tests for authorized and wrong-grantee resolve.
-- [ ] Redis/TTL store when horizontal scaling is required.
-
-## 7. Phase 2 — local mobile foundation
-
-**Status: functional offline/local messaging foundation implemented.**
-
-### Identity persistence
-
-- [x] First-run identity creation.
-- [x] Identity stored through MAUI `SecureStorage`.
-- [x] Android Keystore-backed storage through MAUI.
-- [x] iOS Keychain storage through MAUI.
-- [x] Do not silently replace unreadable identity material.
-- [x] Reinstall treated as a new identity until recovery exists.
-- [x] Android app backup disabled for current privacy model.
-- [x] Peer ID display/copy.
-- [x] Human-readable identity fingerprint display.
-- [ ] Non-exportable platform-native identity-key evaluation.
-- [ ] Secure Enclave evaluation on iOS.
-- [ ] Explicit encrypted identity export/recovery.
-- [ ] Identity reset/recovery UX.
-
-The current shared identity key remains exportable in application memory because it is represented as PKCS#8 material. That is an explicit prototype boundary.
-
-### Encrypted local database
-
-`Dyract.Storage` is implemented with SQLite behind `ILocalStore`.
-
-- [x] `Dyract.Storage` project.
-- [x] Schema/version bootstrap.
-- [x] Contacts repository.
-- [x] Conversations/messages repository.
-- [x] Transactional outbox.
-- [x] UUIDv7 message/conversation identifiers where applicable.
-- [x] Independent 256-bit local-data key through SecureStorage.
-- [x] AES-256-GCM encryption of contact names/capabilities/message text/outbox errors.
-- [x] Wrong-key decryption tests.
-- [x] SQLite native dependency pinned to a non-vulnerable compatible bundle.
-- [ ] Formal schema migrations beyond prototype v1.
-- [ ] Attachments and attachment cleanup/storage policy.
-- [ ] Optional stronger full-file metadata protection if required by threat model.
-
-The SQLite file is **not** claimed to be completely opaque: operational metadata such as Peer IDs and timestamps remains visible while user-content fields are encrypted.
-
-### Contact onboarding and pairing
+**Status: prototype complete.**
 
 Identity exchange and endpoint authorization are separate:
 
 ```text
 dyract://contact/v1/...   -> pin PeerId + public key
-
 dyract://pair/v1/...      -> signed reachability authorization
 ```
 
-- [x] Versioned contact invitation codec.
+- [x] Versioned contact invitation.
 - [x] PeerId/public-key binding validation.
-- [x] Fingerprint presentation.
-- [x] Local-only display name.
-- [x] Reciprocal pairing response generation/import.
-- [x] Pairing response stored encrypted.
-- [x] Wrong grantee/tampered/expired response tests.
-- [x] Copy/paste onboarding flow.
-- [ ] QR rendering/scanning.
-- [ ] Capability revocation/renewal UX.
+- [x] Human-verifiable fingerprint.
+- [x] Target-signed capability bound to exact grantee.
+- [x] Capability expiry/wrong-grantee/tamper validation.
+- [x] Signed short-lived presence publication/removal.
+- [x] Maximum two-minute presence lease.
+- [x] Capability-protected peer resolve.
+- [x] No permanent endpoint/IP history in prototype store.
+- [x] Candidate count/shape validation.
+- [ ] Pre-expiry capability revocation/rotation.
+- [ ] Redis/TTL presence/signaling store when scaling requires it.
 
-### Mobile directory integration
+## 7. Phase 2 — local mobile foundation
 
-- [x] HTTPS-only directory origin setting.
-- [x] Reject directory URLs with credentials/path/query/fragment.
-- [x] Identity registration from MAUI app.
-- [x] Capability-protected reachability check for paired contacts.
-- [x] Re-verify saved capability before resolve.
-- [x] Pin directory-returned public key against saved contact key.
-- [x] Validate malformed server timestamp/key responses.
-- [ ] Automatic background presence publication once real ICE candidates exist.
+**Status: functional local/offline foundation implemented.**
 
-### UX slice
+### Identity and local data
+
+- [x] First-run identity creation.
+- [x] MAUI SecureStorage integration.
+- [x] Android Keystore / iOS Keychain-backed storage through MAUI.
+- [x] Reinstall treated as a new identity until recovery exists.
+- [x] Android app backup disabled for the current privacy model.
+- [x] Encrypted SQLite repositories.
+- [x] Contacts/conversations/messages/outbox repositories.
+- [x] Independent local-data encryption key.
+- [x] AES-256-GCM encryption of user-content fields.
+- [x] UUIDv7 message/conversation IDs where applicable.
+- [ ] Formal schema migrations beyond prototype v1.
+- [ ] Identity export/recovery/reset UX.
+- [ ] Evaluate non-exportable native identity keys / Secure Enclave.
+
+### User flow
 
 - [x] Identity screen.
-- [x] Directory setup and registration status.
-- [x] Contact import/pairing.
+- [x] Directory registration.
+- [x] Contact invitation import.
+- [x] Reciprocal pairing capability import.
 - [x] Contact list.
 - [x] Conversation screen.
 - [x] Locally queued text messages.
-- [x] Reachability status check.
-- [ ] QR contact exchange.
-- [ ] Complete settings/security screen.
-- [ ] Identity recovery/reset UX.
-
-### Exit criteria
-
-The **local/offline** part is reached: two installations can create identities, exchange identity/pairing data by copy/paste, persist contacts, open conversations and safely queue encrypted text locally. The remaining Phase 2 gap is primarily production UX/recovery/QR hardening, not the local data model.
+- [x] Reachability check for paired contacts.
+- [ ] QR rendering/scanning.
+- [ ] Complete security/settings UX.
 
 ## 8. Phase 3 — direct connectivity spike
 
-**Status: started — transport abstraction and reachability descriptor validation implemented; concrete ICE transport pending.**
+**Status: Android native WebRTC experiment implemented and CI-valid; physical-device evidence is now the gate.**
 
-### Implemented transport foundation
+The shipping code remains transport-independent. The concrete Android spike is under `experiments/` using `FsWebRTC.Bindings.Maui.Android`.
 
-`Dyract.Transport` now defines:
+Implemented:
 
-```text
-IPeerTransport
-  StartAsync
-  ConnectAsync
-  AcceptAsync
+- [x] Replaceable `IPeerTransport` / peer transport contracts.
+- [x] DirectOnly vs AllowRelay policy in shared transport models.
+- [x] Capability-protected ephemeral signaling.
+- [x] Offer/answer/trickle ICE handling.
+- [x] Android DataChannel creation/open handling.
+- [x] Host/STUN candidate observation.
+- [x] Privacy-safe observed candidate categories (`host`, `srflx`, `prflx`, `relay` + `udp`/`tcp`).
+- [x] Privacy-safe selected ICE path through `RTCStats`.
+- [x] Selected path resolved only from `transport.selectedCandidatePairId` and referenced candidate stats.
+- [x] Raw candidate addresses/ports/stats IDs kept out of harness UI/logs.
+- [x] RTCStats callback retained safely across caller timeout.
+- [x] Android diagnostic APK produced by CI.
 
-IPeerConnection
-  PeerId
-  State
-  SendAsync
-  ReceiveAsync
-```
+Still open:
 
-Modes:
+- [ ] Android Wi-Fi ↔ Android same Wi-Fi physical proof.
+- [ ] Android across different Wi-Fi/NAT networks.
+- [ ] Wi-Fi ↔ cellular.
+- [ ] cellular ↔ cellular / CGNAT characterization.
+- [ ] IPv6 physical proof.
+- [ ] network-change/reconnect behavior.
+- [ ] foreground/background lifecycle behavior.
+- [ ] TURN/AllowRelay experiment after DirectOnly evidence.
+- [ ] iOS WebRTC runtime adapter and Android ↔ iPhone proof.
 
-```text
-DirectOnly
-AllowRelay
-```
+### FsWebRTC production blocker
 
-- [x] Replaceable `IPeerTransport` abstraction.
-- [x] Inbound and outbound connection contracts.
-- [x] DirectOnly vs AllowRelay policy.
-- [x] Validate resolved lease before connection attempt.
-- [x] Reject expired leases client-side.
-- [x] Revalidate candidate address/protocol/port client-side.
-- [x] DirectOnly strips relay candidates and fails cleanly if relay is the only option.
-- [ ] Choose/spike concrete ICE/WebRTC-compatible implementation.
-- [ ] Gather real host/server-reflexive candidates on Android/iOS.
-- [ ] Add signaling API for offer/answer/trickle candidates where required.
-- [ ] Establish first data-only peer channel.
-- [ ] Publish gathered candidates through signed presence.
-- [ ] Connect inbound accept path.
-
-A current candidate for the spike is SIPSorcery because it supports .NET/WebRTC/ICE/data channels without native wrappers, but this is deliberately **not yet a production dependency**. Physical-device behavior will decide whether it is retained.
-
-### Physical network matrix
-
-- [ ] Android Wi-Fi ↔ Android same Wi-Fi.
-- [ ] Android Wi-Fi ↔ Android different network.
-- [ ] Android Wi-Fi ↔ mobile network.
-- [ ] mobile ↔ mobile.
-- [ ] Android ↔ iPhone.
-- [ ] IPv4 NAT.
-- [ ] CGNAT.
-- [ ] IPv6.
-- [ ] network change while connected.
-- [ ] foreground/background transitions.
-- [ ] TURN fallback where direct ICE fails.
-
-Collect only privacy-minimized connection outcome telemetry; do not log peer IDs or candidate addresses by default.
-
-### Exit criteria
-
-A documented physical-device matrix establishes which network combinations support direct paths and when relay is required. That evidence drives the final product defaults for DirectOnly vs AllowRelay.
+Current Android builds report `XA0141`: the FsWebRTC native `libjingle_peerconnection_so.so` does not satisfy the Android 16 KB page-size requirement. FsWebRTC must **not** be promoted into the shipping messenger until this is fixed upstream/replaced and physical-device behavior is acceptable.
 
 ## 9. Phase 4 — authenticated encrypted peer sessions
 
-Identity authentication and application-session encryption are separate from ICE transport.
+**Status: implemented as transport-independent protocol code and exercised by the Android harness; independent review remains mandatory.**
 
-- [ ] Ephemeral key agreement with forward secrecy.
-- [ ] Long-term identity authentication of the transcript.
-- [ ] Pinned identity verification during connection establishment.
-- [ ] Sequence numbers/replay protection.
-- [ ] Protocol-version negotiation.
-- [ ] Downgrade protection.
-- [ ] Session renewal/key rotation.
-- [ ] Independent review of handshake/key schedule.
+Implemented:
 
-The transport layer must not be considered the E2E security layer merely because WebRTC/DTLS encrypts packets. Dyract should authenticate its own peer identity/session semantics independently.
+- [x] Fresh ephemeral P-256 ECDH per session.
+- [x] Long-term identity signatures over the handshake transcript.
+- [x] Pinned PeerId/public-key verification.
+- [x] Session-ID and initiator/responder role binding.
+- [x] HKDF-SHA256 directional session keys.
+- [x] AES-256-GCM `DYSE` application-session framing.
+- [x] Monotonic sequence/replay/out-of-order rejection for the reliable ordered channel.
+- [x] Protocol versioning and size bounds.
+- [x] Adversarial automated tests for tampering/wrong identity/wrong session/replay.
+- [x] Physical harness performs the authenticated handshake before protocol probes.
+- [ ] Independent cryptographic review.
+- [ ] Decide whether reconnect-level forward secrecy is sufficient or a reviewed Double-Ratchet/Noise-style design is required.
+- [ ] Formal/fuzz/property testing of the final frozen wire protocol.
+
+See `docs/session-security.md`.
 
 ## 10. Phase 5 — reliable messaging
 
+**Status: transport-neutral reliability algorithm implemented and tested; shipping transport scheduling is intentionally not connected yet.**
+
 ```text
-Queued -> Connecting -> Sent -> Delivered -> Read
-                     \-> Retry/Failed
+Queued -> send attempt -> Sent -> wait for peer ACK -> Delivered
+             |                       |
+             +---- Failed/retry -----+
 ```
 
-- [x] UUIDv7 sortable message IDs.
-- [x] Transactional local message + outbox commit before network send.
-- [ ] Outbox delivery worker.
-- [ ] Retry with bounded exponential backoff.
-- [ ] Idempotent receive by MessageId.
-- [ ] Delivery ACK.
-- [ ] Optional read receipt.
-- [ ] Reconnect synchronization.
-- [ ] Duplicate suppression.
-- [ ] Clock-skew-safe ordering.
+Implemented:
 
-No undelivered message body is uploaded to the directory.
+- [x] Transactional local message + outbox commit before network send.
+- [x] Versioned `DYRM` text and delivery-ACK frames.
+- [x] Canonical lowercase MessageId validation.
+- [x] Authenticated sender/recipient scope checks.
+- [x] Durable incoming insert before ACK.
+- [x] Idempotent receive by MessageId.
+- [x] Exact-duplicate suppression.
+- [x] Changed-content/scope collision rejection.
+- [x] Duplicate ACK re-emission after lost ACK.
+- [x] Exact-peer ACK authorization before clearing outbox.
+- [x] Due-only outbox selection.
+- [x] Deterministic retry of the original MessageId/CreatedAt/text.
+- [x] ACK-timeout retry scheduling.
+- [x] Bounded exponential failure backoff.
+- [x] Privacy-safe persisted failure codes only.
+- [x] Plaintext DYRM send buffer clearing after transport use.
+- [x] Two-encrypted-database lost-first-ACK integration proof.
+- [x] Experimental authenticated DataChannel `DYRM` message -> delivery ACK probe.
+
+Still open:
+
+- [ ] Production `IPeerApplicationFrameSender` implementation selected from the proven transport.
+- [ ] Mobile lifecycle/background delivery scheduler.
+- [ ] Reconnect/session management around the worker.
+- [ ] Read receipts.
+- [ ] Long-offline synchronization strategy.
+- [ ] Clock-skew-aware presentation ordering.
+- [ ] Physical-device proof of DYRM ACK round trip across the network matrix.
+
+See `docs/reliable-messaging.md`.
 
 ## 11. Phase 6 — mobile wake-up/offline behavior
 
-Pure IP reachability cannot guarantee WhatsApp-like delivery while a mobile app is suspended.
+**Status: not implemented.**
+
+Pure P2P cannot guarantee delivery while mobile operating systems suspend both apps.
 
 - [ ] APNs wake routing for iOS.
 - [ ] FCM wake routing for Android.
-- [ ] Minimum push-routing metadata only.
-- [ ] No message body/contact display name/attachment in wake payload.
-- [ ] Opaque wake signal that prompts Dyract reconnection.
-- [ ] Graceful handling of throttling/unavailable push.
+- [ ] Opaque wake payload only; no message body/contact display name/attachment metadata.
+- [ ] Best-effort reconnect after wake.
+- [ ] Graceful handling of throttled/unavailable push.
+- [ ] Document delivery guarantees for Strict DirectOnly vs AllowRelay/wake-enabled mode.
 
 ## 12. Phase 7 — attachments
 
-```text
-AttachmentManifest
-  FileId
-  Name
-  MIME type
-  Size
-  SHA-256
-  Chunk size
-```
+**Status: not implemented.**
 
+- [ ] Versioned attachment manifest.
 - [ ] Chunked direct transfer.
 - [ ] Resume by missing ranges.
-- [ ] Integrity verification.
-- [ ] Transfer limits.
+- [ ] SHA-256 integrity verification.
+- [ ] Transfer/size limits.
 - [ ] Safe filename/content handling.
-- [ ] Local cleanup policy.
-- [ ] Local thumbnail generation.
+- [ ] Local cleanup policy and thumbnails.
 
-## 13. Phase 8 — production directory infrastructure
-
-Suggested production topology:
-
-```text
-ASP.NET Core API
-PostgreSQL    durable identity/public-key registration
-Redis         short-lived presence/nonces/signaling
-APNs/FCM      wake routing
-STUN          NAT discovery
-TURN          optional encrypted packet relay
-```
+## 13. Phase 8 — production infrastructure
 
 - [x] PostgreSQL identity store available when configured.
-- [x] Basic rate/request-size controls.
+- [x] Basic API rate/request-size controls.
 - [ ] Explicit DB migrations + PostgreSQL CI.
-- [ ] Horizontal scaling.
-- [ ] Redis-backed ephemeral state.
-- [ ] Broader abuse/DDoS strategy.
-- [ ] Key/secret management.
-- [ ] Privacy-aware operational logs/metrics.
-- [ ] Retention specification.
-- [ ] Backup/restore policy limited to server-owned metadata.
+- [ ] Redis-backed ephemeral state for horizontal scaling.
+- [ ] Production STUN/TURN deployment decision.
+- [ ] APNs/FCM integration.
+- [ ] Secret/key management.
+- [ ] Privacy-aware logs/metrics/retention.
+- [ ] Backup/restore limited to server-owned metadata.
 
 ## 14. Phase 9 — security hardening
 
 Required before public production use:
 
-- [ ] Threat model (STRIDE + privacy/metadata analysis).
+- [ ] Formal threat model including metadata/privacy analysis.
 - [ ] API penetration test.
-- [ ] Protocol fuzzing.
-- [ ] Malformed-frame tests.
-- [ ] Replay/downgrade tests.
-- [ ] Endpoint-enumeration tests.
-- [ ] Stolen-device analysis.
-- [ ] Reinstall/key-loss/recovery analysis.
+- [ ] Protocol fuzzing/property tests.
+- [ ] Replay/downgrade/session-collision tests at system level.
+- [ ] Endpoint-enumeration/abuse tests.
+- [ ] Stolen-device and recovery analysis.
 - [ ] Dependency/SBOM automation.
 - [ ] Independent cryptographic review.
 - [ ] Mobile secure-storage review.
 
-## 15. Deferred features
+## 15. Deferred until one-to-one messaging is proven
 
-Do not prioritize until one-to-one messaging is secure/reliable:
-
-- group chat,
-- multi-device synchronization,
-- voice/video calls,
-- public usernames/search,
-- bots/channels,
+- group chat;
+- multi-device synchronization;
+- voice/video calls;
+- public usernames/search;
+- bots/channels;
 - cloud message backup.
 
-Each changes the privacy/security model materially.
+Each materially changes the privacy/security model.
 
 ## 16. MVP definition
 
-The first usable MVP is reached when:
+The first usable MVP requires:
 
-1. Android and iOS securely persist an identity.
-2. Two users exchange/pin contact identities and reciprocal reachability authorization.
-3. Both publish authenticated presence.
-4. A direct ICE/STUN connection is attempted.
-5. The peer channel is mutually identity-authenticated and application-E2E encrypted.
-6. Text messages persist locally and retry after failures.
-7. Delivery ACKs survive reconnects.
+1. Android and iOS securely persist identity and local encrypted data.
+2. Two users exchange/pin identity and reciprocal reachability authorization.
+3. Both can publish short-lived authenticated presence/signaling state.
+4. A direct ICE/STUN connection is attempted and its path is privacy-safely observable.
+5. The peer channel completes the Dyract authenticated encrypted application session.
+6. Text messages are locally durable and use the tested retry/dedup/ACK semantics.
+7. Mobile lifecycle integration retries queued messages after reconnect/wake.
 8. Background wake-up is best effort and contains no chat content.
-9. Relay use can be enabled/disabled according to privacy mode.
-10. Security review has no release-blocking issue.
+9. Relay use is an explicit policy choice.
+10. Android/iOS physical matrices and security review have no release-blocking issue.
 
-## 17. Immediate next implementation tasks
+## 17. Immediate next tasks
 
-1. Validate the latest directory/mobile/transport foundation in CI.
-2. Build a concrete ICE/DataChannel spike behind `IPeerTransport` — SIPSorcery 10.0.12 is a candidate, not yet a commitment.
-3. Add capability-protected ephemeral signaling for offer/answer/trickle ICE if the chosen implementation requires it.
-4. Gather and publish real host/server-reflexive candidates from Android/iOS.
-5. Prove Android↔Android and Android↔iPhone connectivity on physical devices.
-6. Define and implement the authenticated forward-secret Dyract peer-session handshake.
-7. Connect the transactional outbox to the peer transport with retries/ACKs.
-8. Add macOS/iOS CI and iPhone build validation.
-9. Add QR onboarding and capability renewal/revocation UX.
-10. Add explicit PostgreSQL migrations and integration CI.
+Do **not** add more transport-dependent product code until the physical Android spike is measured.
+
+1. Install the latest Android transport harness on two physical Android devices.
+2. Run same-Wi-Fi DirectOnly first with STUN blank.
+3. Record observed candidate categories, **selected ICE path**, authenticated-session result, DYRT RTT and DYRM ACK RTT.
+4. Repeat on different Wi-Fi/NAT, Wi-Fi ↔ cellular, cellular ↔ cellular and IPv6.
+5. Exercise close/retry and network transition behavior.
+6. Decide whether FsWebRTC remains viable based on physical behavior and the Android 16 KB native-library blocker.
+7. If viable, create the production Android `IPeerApplicationFrameSender`/transport adapter and connect the existing outbox worker behind lifecycle-safe scheduling.
+8. Add the corresponding iOS transport adapter and Android ↔ iPhone matrix.
+9. Only after transport viability: implement APNs/FCM wake routing and optional TURN fallback.
+10. In parallel, continue QR onboarding, recovery UX, database migrations and security/fuzz review work because these do not depend on the final transport choice.
