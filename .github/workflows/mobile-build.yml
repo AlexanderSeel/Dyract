@@ -46,6 +46,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating reliable messaging final snapshot at millisecond wire precision"
+
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
 
