@@ -35,6 +35,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Show validation snapshot
+        run: echo "Validating privacy-safe selected ICE path model and DYRM reliability"
+
       - name: Restore
         run: dotnet restore Dyract.slnx
 
