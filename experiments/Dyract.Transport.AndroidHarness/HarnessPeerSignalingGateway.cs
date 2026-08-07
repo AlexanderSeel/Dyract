@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Dyract.Client;
 using Dyract.Core.Identity;
 using Dyract.Protocol;
