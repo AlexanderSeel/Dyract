@@ -55,14 +55,16 @@ These rules should remain true unless a future architecture decision explicitly 
 ## 4. Repository/project structure
 
 ```text
-Dyract.slnx
+Dyract.slnx             workload-free core/server/test solution
+Dyract.Mobile.slnx      Android/iOS MAUI solution
+
 src/
+  Dyract.App/           .NET MAUI Android/iOS client
   Dyract.Core/          identity/domain primitives
   Dyract.Crypto/        long-term identity cryptography
   Dyract.Protocol/      wire contracts + canonical proof payloads
   Dyract.Client/        directory client used by mobile app
   Dyract.Server/        directory/signaling service
-  Dyract.App/           .NET MAUI app (phase 2)
   Dyract.Transport/     peer transport abstractions (phase 3)
   Dyract.Storage/       SQLite/local repositories (phase 2)
 tests/
@@ -100,8 +102,6 @@ Two generated identities can register against a local server. A registered peer 
 
 **Status: first implementation and HTTP authorization coverage complete.**
 
-This phase turns the identity registry into a safe discovery service.
-
 ### Contact capability
 
 The implemented capability is signed by the target/issuer and bound to one grantee:
@@ -122,8 +122,6 @@ The capability is held by the contact receiving permission. The server verifies 
 A capability is reusable until expiry; each resolve request still requires a fresh requester signature, timestamp and nonce. Capability revocation before expiry is deliberately deferred and must be designed before production.
 
 ### Presence leases
-
-The current model is:
 
 ```text
 PeerPresence
@@ -166,15 +164,25 @@ Peer A can publish a short-lived endpoint lease, and an authenticated Peer B can
 
 ## 7. Phase 2 — local mobile foundation
 
-Create `Dyract.App` as a .NET MAUI application targeting Android and iOS.
+**Status: started — MAUI shell and secure first-run identity flow implemented.**
+
+`Dyract.App` targets Android and iOS through .NET MAUI. It is kept in `Dyract.Mobile.slnx` so the core/server CI does not require mobile workloads.
 
 ### Identity persistence
 
-- [ ] First-run identity creation.
-- [ ] Android Keystore-backed secret protection.
-- [ ] iOS Keychain/Secure Enclave integration where appropriate.
-- [ ] Identity fingerprint display.
-- [ ] Export/recovery design before enabling identity backup.
+- [x] First-run identity creation.
+- [x] Persist PKCS#8 identity through MAUI `SecureStorage`.
+- [x] Android Keystore-backed encrypted storage through MAUI SecureStorage.
+- [x] iOS Keychain storage through MAUI SecureStorage.
+- [x] Do not silently replace an unreadable identity.
+- [x] Define reinstall as a new identity until explicit recovery exists.
+- [x] Disable Android app backup for the current privacy model.
+- [ ] Evaluate non-exportable platform-native identity keys.
+- [ ] Evaluate Secure Enclave-backed identity where appropriate.
+- [ ] Add separate human-readable fingerprint/safety-number display.
+- [ ] Design explicit encrypted identity export/recovery.
+
+The current key is securely stored at rest but remains exportable in application memory because the shared `PeerIdentity` implementation imports/exports PKCS#8 key material. This is an explicit first implementation boundary, not the final mobile key design.
 
 ### Local database
 
@@ -194,6 +202,13 @@ Settings
 
 Never treat local display names as directory identity attributes.
 
+- [ ] Create `Dyract.Storage` project.
+- [ ] Add SQLite schema/versioning.
+- [ ] Contacts repository.
+- [ ] Conversation/message repository.
+- [ ] Transactional outbox repository.
+- [ ] Local database encryption/key strategy.
+
 ### Contact invitation representation
 
 Before QR UI is added, define a versioned portable invitation format containing at least:
@@ -202,24 +217,26 @@ Before QR UI is added, define a versioned portable invitation format containing 
 protocol version
 PeerId
 identity public-key/fingerprint data needed for verification
-contact capability when it is already grantee-bound
+contact authorization bootstrap data
 optional human-readable checksum
 ```
 
-Do not include profile/contact data that the directory does not need.
+The current durable contact capability is grantee-bound. Initial contact onboarding therefore needs an explicit pairing/invitation design rather than weakening endpoint authorization into a globally reusable capability.
 
 ### UX slice
 
-- [ ] First-run identity screen.
-- [ ] Show/copy Peer ID.
-- [ ] QR contact exchange.
+- [x] First-run identity screen.
+- [x] Show/copy Peer ID.
+- [ ] Directory server configuration/registration state.
+- [ ] QR/contact exchange.
 - [ ] Contact list.
 - [ ] Empty conversation screen.
 - [ ] Basic settings/security screen.
+- [ ] Explicit identity reset/recovery UI.
 
 ### Exit criteria
 
-Two phones can create identities, exchange contact invitations and retain contacts locally across app restarts.
+Two phones can create identities, exchange contact invitations and retain contacts locally across app restarts. **Not reached yet:** identity creation is implemented; contact pairing and local contact storage remain.
 
 ## 8. Phase 3 — direct connectivity spike
 
@@ -403,7 +420,7 @@ Each of these changes the privacy/security model substantially.
 The first usable MVP is reached when:
 
 1. Android and iOS generate and securely persist an identity.
-2. Two users exchange contact capability via QR/copy link.
+2. Two users exchange contact authorization via QR/copy link.
 3. Both register authenticated presence.
 4. A direct connection is attempted using ICE/STUN.
 5. The connection is mutually authenticated and end-to-end encrypted.
@@ -415,12 +432,13 @@ The first usable MVP is reached when:
 
 ## 17. Immediate next implementation tasks
 
-With identity registration, capability-protected presence, HTTP integration tests, rate limits and optional PostgreSQL identity persistence now implemented, the next sequence is:
+The next sequence is:
 
-1. Add structured privacy-aware server logging and PostgreSQL integration CI/migrations.
-2. Define the versioned contact invitation/QR payload and fingerprint UX.
-3. Create the .NET MAUI shell and platform secure identity persistence.
-4. Add `Dyract.Storage` with SQLite repositories for contacts, conversations, messages and outbox.
-5. Add capability revocation/rotation semantics before production contact sharing is finalized.
-6. Add `Dyract.Transport` abstractions and begin the ICE/STUN connectivity spike on physical Android/iPhone devices.
-7. Add Redis-backed ephemeral presence/nonces/signaling only when multi-instance deployment requires it.
+1. Validate the current server/core changes through CI and add PostgreSQL integration coverage/migrations.
+2. Define a secure first-contact pairing/invitation protocol that upgrades into grantee-bound capabilities.
+3. Connect the MAUI client to configurable directory registration/status.
+4. Create `Dyract.Storage` and implement local contact + conversation + transactional outbox persistence.
+5. Add explicit identity reset/recovery UX without silent key replacement.
+6. Add capability revocation/rotation semantics.
+7. Create `Dyract.Transport` abstractions and begin the ICE/STUN connectivity spike on physical Android/iPhone devices.
+8. Add Redis-backed ephemeral presence/nonces/signaling only when multi-instance deployment requires it.
