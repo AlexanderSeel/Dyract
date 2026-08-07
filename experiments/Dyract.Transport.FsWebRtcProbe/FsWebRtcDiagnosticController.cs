@@ -93,7 +93,7 @@ public sealed class FsWebRtcDiagnosticController
                 var components = CreateComponents(remotePeerId, offer.SessionId);
                 var incomingChannelSource = new TaskCompletionSource<ExperimentalDataChannelAdapter>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                components.Harness.IncomingDataChannel += incomingChannelSource.TrySetResult;
+                components.Harness.IncomingDataChannel += channel => incomingChannelSource.TrySetResult(channel);
 
                 try
                 {
