@@ -67,3 +67,26 @@ public interface IOutgoingDeliveryStore
         DateTimeOffset deliveredAt,
         CancellationToken cancellationToken = default);
 }
+
+public interface IOutboxDeliveryQueue
+{
+    Task<IReadOnlyList<DueOutboxMessage>> GetDueOutboxAsync(
+        DateTimeOffset dueAtOrBefore,
+        int limit = 50,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> RecordOutboundSentAsync(
+        string messageId,
+        string senderPeerId,
+        string recipientPeerId,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> RecordOutboundFailureAsync(
+        string messageId,
+        string senderPeerId,
+        string recipientPeerId,
+        string failureCode,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken = default);
+}
