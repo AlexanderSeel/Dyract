@@ -2,130 +2,192 @@
 
 **Direct by design.**
 
-Dyract is an experimental privacy-first messenger for Android and iPhone built around direct peer-to-peer communication. Instead of using a central service to hold user profiles, contact lists, conversations, attachments, or message history, each Dyract installation owns a cryptographic identity and stores its data locally.
+Dyract is an experimental privacy-first messenger for Android and iPhone built around direct peer-to-peer communication. Each installation owns a cryptographic identity; contacts, local names, conversations and messages remain on the participating devices. The central service is intentionally narrow: identity registration, short-lived reachability, capability verification and later connection signaling/wake-up — not chat history.
 
-The central service is intentionally narrow: it authenticates peers and holds only the identity/reachability metadata needed to establish a connection. Message transport should be direct whenever the network allows it.
-
-> Dyract is currently an early implementation/protocol experiment. The security model and protocol have not been independently audited and must not yet be treated as production-grade cryptography.
+> Dyract is still an implementation/protocol experiment. The cryptographic composition and mobile security model have not been independently audited and must not yet be treated as production-grade.
 
 ## Core principles
 
-- **Device-owned identity** — a peer owns a locally generated private key; the public Peer ID is derived from its public key.
-- **Local-first data** — contacts, display names, conversations, messages and attachments belong on participating devices.
-- **Minimal directory** — the server is not a chat-history or user-profile service.
-- **Authenticated discovery** — knowing a Peer ID alone is not enough to impersonate that peer or retrieve its current endpoint.
-- **Capability-protected reachability** — a target peer explicitly signs permission for a specific peer to resolve its temporary presence.
-- **Short-lived presence** — addresses/candidates expire within two minutes and are kept only in the ephemeral presence store.
-- **Direct-first transport** — peers should connect directly using ICE/STUN where possible; an encrypted TURN relay can later be an explicit fallback.
-- **Store-and-retry** — when the destination cannot be reached, outgoing data remains in the sender's local outbox until another delivery attempt succeeds.
-- **No home-grown primitives** — Dyract defines application protocol behavior, not new cryptographic algorithms.
+- **Device-owned identity** — a peer owns a locally generated private key; the public `dyr_...` Peer ID is derived from the public key.
+- **Local-first data** — contacts, user-assigned names, conversations, message bodies and attachments do not belong in the directory.
+- **Minimal directory** — the server does not maintain profiles, a social/contact graph or message history.
+- **Pinned identities** — a contact invitation binds a Peer ID to public-key material and the mobile client stores that relationship locally.
+- **Explicit reachability authorization** — identity knowledge alone does not reveal an endpoint. A target signs a grantee-bound capability for the exact peer that may resolve it.
+- **Short-lived presence** — published reachability leases expire within two minutes.
+- **Store before send** — an outgoing message is encrypted and committed to SQLite together with its outbox row before network delivery is attempted.
+- **Direct-first transport** — ICE/STUN direct connectivity is the target; TURN is an explicit fallback when direct establishment is impossible.
+- **No home-grown primitives** — Dyract composes established platform cryptography rather than inventing cryptographic algorithms.
 
 ## Architecture
 
 ```text
                          Dyract Directory
                     ASP.NET Core / .NET 10
-                 +----------------------------+
-                 | peer ID + public key       |
-                 | temporary presence leases  |
-                 | capability verification    |
-                 | signaling (*)              |
-                 | wake token (*)             |
-                 |                            |
-                 | NO profiles                |
-                 | NO contact graph           |
-                 | NO message history         |
-                 | NO attachments             |
-                 +-------------+--------------+
-                               |
-                 authenticated discovery only
-                               |
-                 +-------------+-------------+
-                 |                           |
-             Alice device                Bob device
-              .NET MAUI                   .NET MAUI
-             local storage               local storage
-                 |                           |
-                 +====== encrypted P2P =====+
+                 +-----------------------------+
+                 | Peer ID + public key        |
+                 | temporary presence leases   |
+                 | capability verification     |
+                 | signaling (*)               |
+                 | wake routing (*)            |
+                 |                             |
+                 | NO profiles                 |
+                 | NO contact graph            |
+                 | NO chat history             |
+                 | NO attachments              |
+                 +--------------+--------------+
+                                |
+                     authenticated discovery
+                                |
+                 +--------------+--------------+
+                 |                             |
+             Alice device                  Bob device
+              .NET MAUI                     .NET MAUI
+                 |                             |
+        encrypted SQLite             encrypted SQLite
+        contacts/messages            contacts/messages
+        transactional outbox         transactional outbox
+                 |                             |
+                 +==== encrypted P2P (*) =====+
 
-(*) planned
+(*) transport/signaling and wake-up are the next major phases
 ```
 
-A raw IP address is not sufficient for reliable mobile P2P communication. Cellular networks, NAT/CGNAT, Wi-Fi changes and iOS/Android background restrictions require temporary connection candidates and signaling rather than a permanent `PeerId -> IP` table. Dyract therefore uses `PeerId -> authenticated, short-lived reachability information`.
+A raw `PeerId -> IP` table is not sufficient for mobile networks. NAT/CGNAT, Wi-Fi/cellular transitions and background restrictions require authenticated short-lived reachability plus NAT traversal. Dyract therefore treats an endpoint as an expiring connection candidate set, not a permanent address.
 
 ## Current implementation
 
-The repository currently contains the identity/directory foundation, secure presence discovery, server hardening and the first mobile client slice:
+### Identity and directory
 
 - .NET 10 shared/server solution
-- cryptographic `dyr_...` Peer ID derived from the identity public key
-- ECDSA P-256 identity generation/signing using `System.Security.Cryptography`
-- challenge/response peer registration
+- ECDSA P-256 identity generation/signing through `System.Security.Cryptography`
+- SHA-256-derived `dyr_...` Peer IDs
+- challenge/response registration
 - signed identity lookup
-- timestamp and replay-nonce validation
-- target-signed contact capabilities bound to a specific grantee
-- signed presence publish/update and removal
-- maximum two-minute presence leases with automatic expiry
-- candidate validation and bounded candidate count
-- capability-authorized endpoint resolution
-- async identity persistence abstraction
-- in-memory identity store for zero-setup local/test use
-- optional PostgreSQL identity persistence through Npgsql
-- per-client registration and peer-operation rate limits
-- 64 KiB maximum request-body protection
-- reusable .NET directory client
-- unit and ASP.NET integration tests, including authorized/unauthorized resolve cases
-- .NET MAUI Android/iOS project and mobile solution
-- first-run mobile identity creation/loading through MAUI `SecureStorage`
-- Peer ID display/copy screen
-- Android cleartext networking disabled and app backup disabled
-- GitHub Actions restore/build/test for the workload-free .NET solution
+- request timestamps + replay nonces
+- target-signed, grantee-bound contact capabilities
+- signed presence publish/update/removal
+- max two-minute presence leases
+- bounded candidate validation
+- capability-protected `/api/v1/peer/resolve`
+- async `IIdentityStore`
+- zero-setup in-memory identity store
+- optional PostgreSQL identity persistence via Npgsql
+- request-body limits + per-client API rate limits
+- unit and ASP.NET integration coverage
 
-Still planned:
+### Mobile client
 
-- local contact/conversation/message/outbox storage
-- QR/contact invitation UX
-- directory registration from the mobile app
-- non-exportable platform identity-key hardening / Secure Enclave evaluation
-- ICE/STUN connectivity and signaling
-- optional TURN fallback
-- authenticated encrypted peer sessions with forward secrecy
-- APNs/FCM wake-up
-- attachments, acknowledgements and retry scheduler
-- Redis-backed ephemeral presence/signaling for horizontal scaling
-- PostgreSQL migration tooling rather than prototype schema bootstrap
-- production-grade abuse controls/observability
-- independent security review
+- .NET MAUI Android/iOS app
+- first-run identity generation/loading through MAUI `SecureStorage`
+- Peer ID and identity fingerprint display
+- versioned `dyract://contact/v1/...` identity invitations
+- local contact names stored only on the device
+- reciprocal `dyract://pair/v1/...` reachability responses
+- imported capability verification against the pinned contact public key and local grantee identity
+- 30-day bootstrap pairing capability lifetime
+- HTTPS-only directory configuration
+- mobile identity registration with the directory
+- capability-protected reachability check for paired contacts
+- directory-returned public key pinned against the locally saved contact key
+- contact list and conversation screen
+- locally queued text messages
+- Android cleartext networking disabled
+- Android application backup disabled for the current privacy model
 
-See [plan.md](plan.md) for the implementation roadmap and [faq.md](faq.md) for design decisions and limitations. Mobile-specific notes are in [`src/Dyract.App/README.md`](src/Dyract.App/README.md).
+### Local storage
 
-## Solution layout
+`Dyract.Storage` uses SQLite behind `ILocalStore`.
+
+Implemented tables:
 
 ```text
-Dyract.slnx            server/core/test solution; no mobile workload required
+contacts
+conversations
+messages
+outbox
+schema_info
+```
+
+User-content fields are encrypted above SQLite with AES-256-GCM. The independent local-data encryption key is stored through MAUI `SecureStorage`; it is deliberately separate from the long-term identity key.
+
+Currently encrypted fields include:
+
+- local contact display names,
+- stored contact capabilities,
+- text message payloads,
+- outbox error details.
+
+Peer IDs, timestamps and operational row metadata are not currently hidden by full-database encryption. That distinction is intentional and documented rather than claiming the complete SQLite file is opaque.
+
+Outgoing text queueing is transactional:
+
+```text
+user presses Send
+       |
+       +-- encrypt message body
+       +-- INSERT message state = Queued
+       +-- INSERT outbox item
+       +-- update conversation activity
+       |
+       +-- COMMIT
+             |
+             +-- future transport may attempt delivery
+```
+
+A crash before the transaction commits leaves no half-message. A crash after the commit leaves the message safely queued locally.
+
+## Contact and pairing flow
+
+Identity exchange and reachability authorization are deliberately separate.
+
+```text
+Alice                                      Bob
+  |                                         |
+  | ---- dyract://contact/v1/... ---------> |
+  | <--- dyract://contact/v1/... ---------- |
+  |                                         |
+  | both pin the other's public identity    |
+  |                                         |
+  | ---- Alice-signed pair response ------> |
+  | <--- Bob-signed pair response ----------|
+  |                                         |
+  | each response is bound to its grantee   |
+```
+
+For example, Bob's pairing response for Alice means:
+
+```text
+issuer   = Bob
+ grantee = Alice
+```
+
+Alice can store it and use it to resolve Bob. Copying that response to Charlie does not authorize Charlie because Charlie cannot satisfy the grantee identity/signature checks.
+
+The directory does not need an `Alice is friends with Bob` table.
+
+## Repository layout
+
+```text
+Dyract.slnx            workload-free core/server/storage/test solution
 Dyract.Mobile.slnx     MAUI/mobile development solution
 
 src/
-  Dyract.App/        .NET MAUI Android/iOS client
-  Dyract.Core/       domain primitives such as PeerId
-  Dyract.Crypto/     identity key handling and signature verification
-  Dyract.Protocol/   versioned wire contracts and canonical signed payloads
-  Dyract.Client/     directory/capability client used by the MAUI app
-  Dyract.Server/     identity, presence and discovery service
+  Dyract.App/          .NET MAUI Android/iOS client
+  Dyract.Client/       directory client, invitation/capability helpers
+  Dyract.Core/         identity/domain primitives
+  Dyract.Crypto/       identity cryptography/signature verification
+  Dyract.Protocol/     versioned contracts and canonical signed payloads
+  Dyract.Server/       identity, presence and discovery service
+  Dyract.Storage/      encrypted local SQLite repositories/outbox
+  Dyract.Transport/    planned direct transport abstraction
+
 tests/
-  Dyract.Tests/      unit + ASP.NET integration tests
+  Dyract.Tests/        unit + ASP.NET integration tests
 ```
 
-## Requirements
+## Build core/server/tests
 
-Core/server development:
-
-- .NET 10 SDK
-- PostgreSQL only when durable server identity persistence is enabled
-
-Mobile development additionally requires the .NET MAUI Android/iOS workloads and the normal Android/iOS toolchains. Building iOS requires macOS/Xcode.
-
-## Build server/core/tests
+Requirements: .NET 10 SDK.
 
 ```bash
 dotnet restore Dyract.slnx
@@ -149,45 +211,27 @@ dotnet workload install maui-ios
 dotnet build src/Dyract.App/Dyract.App.csproj -f net10.0-ios
 ```
 
-## Mobile identity bootstrap
+The Android Release build is validated in GitHub Actions. iOS project/platform files are present, but iOS still needs a macOS CI gate and device-level validation.
 
-The current app does not expose messaging yet. It starts by loading or creating the installation identity and displaying the derived Peer ID.
+## Run the directory
 
-The private PKCS#8 identity material is kept through MAUI `SecureStorage`. On Android this uses Keystore-backed encrypted storage; on iOS it uses Keychain. Dyract does not silently replace an unreadable stored identity because that would silently change the Peer ID.
-
-The current key is still exportable in application memory. A later hardening phase will evaluate non-exportable platform-native key handles while keeping recovery/export an explicit product decision.
-
-## Run the directory prototype
-
-Without a database connection string the server uses its in-memory identity store:
+Without a connection string the server uses its in-memory identity store:
 
 ```bash
 dotnet run --project src/Dyract.Server
 ```
 
-To persist peer identities in PostgreSQL, configure the standard ASP.NET Core connection string named `Dyract`, for example through an environment variable:
+Optional PostgreSQL identity persistence uses the standard ASP.NET Core connection string named `Dyract`:
 
 ```text
 ConnectionStrings__Dyract=Host=localhost;Port=5432;Database=dyract;Username=dyract;Password=...
 ```
 
-The prototype creates the `peer_identity` table if it does not exist. This is intentionally bootstrap behavior; production deployment should replace automatic schema creation with explicit database migrations.
+The prototype currently creates the `peer_identity` table automatically. Production deployment should replace this bootstrap behavior with explicit migrations.
 
-Presence, replay nonces and registration challenges remain ephemeral even when PostgreSQL is enabled.
+Presence, challenges and replay nonces remain ephemeral even when PostgreSQL is enabled.
 
-## API limits
-
-The prototype currently applies:
-
-```text
-registration endpoints   30 requests / minute / client address
-peer operations         240 requests / minute / client address
-maximum request body     64 KiB
-```
-
-These limits are a first abuse-prevention layer, not a final DDoS strategy.
-
-## Current API
+## API
 
 ```text
 GET  /health
@@ -199,97 +243,42 @@ POST /api/v1/presence/remove
 POST /api/v1/peer/resolve
 ```
 
-### Registration
+Initial limits:
 
 ```text
-Client                                  Directory
-  |                                        |
-  | public key --------------------------> |
-  | <------- challenge + derived PeerId    |
-  |                                        |
-  | sign registration proof locally       |
-  |                                        |
-  | signed registration ----------------> |
-  | <-------------------------- registered |
+registration endpoints    30 requests/minute/client address
+peer operations          240 requests/minute/client address
+maximum request body      64 KiB
 ```
 
-### Contact capability
+These are first-line abuse controls, not a complete DDoS strategy.
 
-Endpoint resolution is deliberately different from ordinary identity lookup.
+## Security boundaries still open
 
-Bob can create a capability for Alice:
-
-```text
-Issuer:       Bob PeerId
-Grantee:      Alice PeerId
-CapabilityId: random 128-bit identifier
-Issued:       timestamp
-Expires:      timestamp
-Signature:    Bob identity signature
-```
-
-The capability is held by Alice. The directory does not need to persist an `Alice -> Bob` friendship row.
-
-### Presence and resolve
-
-```text
-Bob                                      Directory
- |                                           |
- | signed candidates + 90s lease ---------->|
- |                                           |
-
-Alice                                       Directory
- |                                             |
- | signed resolve + Bob capability ---------->|
- |                                             | verify Alice signature
- |                                             | verify Bob capability
- |                                             | verify lease is current
- |<----------- Bob temporary candidates ------|
-```
-
-A registered peer that merely knows Bob's Peer ID cannot retrieve Bob's presence candidates.
-
-`/peer/lookup` remains an authenticated identity-key lookup and does **not** return reachability information. `/peer/resolve` is the capability-protected operation that can return temporary candidates.
-
-## Current candidate model
-
-The prototype accepts up to eight candidates per lease:
-
-```text
-kind:      host | srflx | relay
-protocol:  udp | tcp
-address:   IPv4 or IPv6
-port:      1..65535
-priority:  non-negative integer
-```
-
-Loopback, unspecified, multicast and broadcast addresses are rejected. The current model is deliberately small; the later ICE transport layer may evolve the wire representation while keeping the same authorization rules.
-
-## Security notes
-
-Long-term identity signatures currently use **ECDSA P-256 + SHA-256** from `System.Security.Cryptography`. Session encryption and forward secrecy are separate protocol concerns and are not implemented yet.
-
-A contact capability is authorization, not authentication by itself. A resolve operation requires both:
-
-1. a fresh signed request proving possession of the requester's private key, and
-2. a valid capability signed by the target identity for that requester.
-
-Before production use the project still requires, at minimum:
+Before production use Dyract still requires, at minimum:
 
 1. a formal threat model,
-2. protocol review,
-3. independent cryptographic/security review,
-4. hardened/non-exportable mobile key design where practical,
-5. encrypted local database design,
-6. stronger abuse/DDoS controls and privacy-aware observability,
-7. explicit database migration/backup policy,
-8. transport fuzzing and replay/downgrade testing,
-9. capability revocation/rotation design,
-10. a decision on direct-only versus TURN-assisted connectivity.
+2. independent review of the handshake/key schedule once peer sessions exist,
+3. non-exportable platform identity-key evaluation where practical,
+4. explicit encrypted identity recovery/export design,
+5. capability revocation/rotation beyond expiry,
+6. ICE/STUN/TURN transport validation on physical Android/iPhone devices,
+7. transport protocol fuzzing/replay/downgrade testing,
+8. APNs/FCM wake-up design and metadata review,
+9. explicit PostgreSQL migrations/backup/retention policy,
+10. broader abuse/DDoS controls and privacy-aware observability,
+11. mobile secure-storage review,
+12. independent application penetration/security testing.
+
+## Next technical milestone
+
+The next major implementation is `Dyract.Transport`: establish a real direct peer channel from the directory's authorized reachability result, initially with ICE/STUN and a data-only WebRTC/ICE spike. The transport must remain replaceable so Dyract is not coupled to one networking library before Android/iOS physical-device testing proves it works reliably.
+
+See [plan.md](plan.md) for the roadmap and [faq.md](faq.md) for design decisions and limitations. Mobile-specific notes are in [`src/Dyract.App/README.md`](src/Dyract.App/README.md).
 
 ## Name
 
-**Dyract** plays on *direct*, *communication* and *peer*: communication should happen as directly as the network permits, with the central service kept outside the conversation itself.
+**Dyract** plays on *direct*, *communication* and *peer*: communication should happen as directly as the network permits, while the central service stays outside the conversation itself.
 
 ## License
 
