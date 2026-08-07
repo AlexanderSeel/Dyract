@@ -6,9 +6,7 @@ namespace Dyract.Transport.FsWebRtcProbe;
 
 public static class DataChannelApiProbe
 {
-    public static void RegisterObserver(
-        DataChannel dataChannel,
-        DataChannel.IObserver observer)
+    public static void RegisterObserver(DataChannel dataChannel, DataChannel.IObserver observer)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
         ArgumentNullException.ThrowIfNull(observer);
@@ -24,27 +22,26 @@ public static class DataChannelApiProbe
     public static string ReadStateName(DataChannel dataChannel)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
-        return dataChannel.State?.ToString() ?? string.Empty;
+        return dataChannel.InvokeState()?.ToString() ?? string.Empty;
     }
 
     public static bool IsOpen(DataChannel dataChannel)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
-        return dataChannel.State == DataChannel.State.Open;
+        return dataChannel.InvokeState() == DataChannel.State.Open;
     }
 
     public static bool IsClosingOrClosed(DataChannel dataChannel)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
-        return dataChannel.State == DataChannel.State.Closing ||
-               dataChannel.State == DataChannel.State.Closed;
+        var state = dataChannel.InvokeState();
+        return state == DataChannel.State.Closing || state == DataChannel.State.Closed;
     }
 
     public static bool SendBinary(DataChannel dataChannel, byte[] payload)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
         ArgumentNullException.ThrowIfNull(payload);
-
         using var byteBuffer = ByteBuffer.Wrap(payload);
         using var buffer = new DataChannel.Buffer(byteBuffer, true);
         return dataChannel.Send(buffer);
