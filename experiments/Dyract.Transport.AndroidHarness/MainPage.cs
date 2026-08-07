@@ -41,6 +41,7 @@ public sealed class MainPage : ContentPage
         HeightRequest = 100
     };
     private readonly Button _pingButton = new() { Text = "Ping", IsEnabled = false };
+    private readonly Button _messageAckButton = new() { Text = "Message + ACK", IsEnabled = false };
 
     private ContactInvitation? _remoteInvitation;
     private ContactCapability? _remoteCapability;
@@ -82,6 +83,7 @@ public sealed class MainPage : ContentPage
         responderButton.Clicked += async (_, _) => await ExecuteAsync(StartResponderAsync);
 
         _pingButton.Clicked += async (_, _) => await ExecuteAsync(PingAsync);
+        _messageAckButton.Clicked += async (_, _) => await ExecuteAsync(MessageAckAsync);
 
         var closeButton = new Button { Text = "Close connection" };
         closeButton.Clicked += async (_, _) => await ExecuteAsync(CloseConnectionAsync);
@@ -97,7 +99,7 @@ public sealed class MainPage : ContentPage
                     new Label { Text = "Dyract WebRTC physical-device harness", FontSize = 22, FontAttributes = FontAttributes.Bold },
                     new Label
                     {
-                        Text = "Experiment only. Signaling uses normal Dyract signed/capability-protected endpoints. After WebRTC/DataChannel setup, the diagnostic channel performs a pinned-identity signed ephemeral handshake and AES-GCM protects binary DYRT ping/pong frames."
+                        Text = "Experiment only. Signaling uses normal Dyract signed/capability-protected endpoints. After WebRTC/DataChannel setup, the diagnostic channel performs a pinned-identity signed ephemeral handshake and AES-GCM protects DYRT ping/pong and DYRM message/ACK protocol probes."
                     },
                     Section("Local identity"),
                     _peerIdLabel,
@@ -127,7 +129,11 @@ public sealed class MainPage : ContentPage
                     new HorizontalStackLayout
                     {
                         Spacing = 8,
-                        Children = { _pingButton, closeButton }
+                        Children = { _pingButton, _messageAckButton, closeButton }
+                    },
+                    new Label
+                    {
+                        Text = "Message + ACK validates the real DYRM text/ACK wire path over the authenticated channel. The diagnostic responder does not persist this probe as chat history; durable receive/deduplication is covered separately by core SQLite integration tests."
                     },
                     Section("Status"),
                     _statusLabel,
@@ -307,7 +313,8 @@ public sealed class MainPage : ContentPage
             await AuthenticateInitiatorAsync(_connection, remotePeerId);
 
             _pingButton.IsEnabled = true;
-            SetStatus($"Authenticated session ready. Session {_connection.SessionId}. Ping is ready.");
+            _messageAckButton.IsEnabled = true;
+            SetStatus($"Authenticated session ready. Session {_connection.SessionId}. Protocol probes are ready.");
             AppendLog("DataChannel OPEN and Dyract identity-authenticated session established.");
         }
         catch
@@ -355,8 +362,9 @@ public sealed class MainPage : ContentPage
             _echoCancellation = new CancellationTokenSource();
             _echoTask = RunEchoLoopAsync(_authenticatedSession!, _echoCancellation.Token);
             _pingButton.IsEnabled = false;
-            SetStatus($"Authenticated responder ready. Session {_connection.SessionId}. Encrypted echo loop active.");
-            AppendLog("DataChannel OPEN and Dyract identity-authenticated session established; encrypted ping echo enabled.");
+            _messageAckButton.IsEnabled = false;
+            SetStatus($"Authenticated responder ready. Session {_connection.SessionId}. DYRT/DYRM responder loop active.");
+            AppendLog("DataChannel OPEN and Dyract identity-authenticated session established; encrypted ping and DYRM ACK probes enabled.");
         }
         catch
         {
@@ -435,6 +443,20 @@ public sealed class MainPage : ContentPage
         }
     }
 
+    private async Task MessageAckAsync()
+    {
+        var authenticated = _authenticatedSession
+            ?? throw new InvalidOperationException("Establish the authenticated diagnostic session first.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var result = await authenticated.MessageAckProbeAsync(cancellationToken: timeout.Token);
+        SetStatus($"Authenticated DYRM delivery ACK received in {result.RoundTripTime.TotalMilliseconds:F1} ms.");
+        AppendLog($"DYRM text -> delivery ACK RTT: {result.RoundTripTime.TotalMilliseconds:F1} ms; MessageId {result.MessageId[..8]}… (diagnostic only). ");
+        if (_connection is not null)
+        {
+            AppendIceSummary(_connection);
+        }
+    }
+
     private async Task RunEchoLoopAsync(
         AuthenticatedDiagnosticSession authenticatedSession,
         CancellationToken cancellationToken)
@@ -450,8 +472,8 @@ public sealed class MainPage : ContentPage
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                SetStatus($"Encrypted echo loop failed: {exception.Message}");
-                AppendLog("Authenticated responder echo loop stopped with an error.");
+                SetStatus($"Encrypted responder loop failed: {exception.Message}");
+                AppendLog("Authenticated DYRT/DYRM responder loop stopped with an error.");
             });
         }
     }
@@ -501,6 +523,7 @@ public sealed class MainPage : ContentPage
     private async Task CloseConnectionAsync()
     {
         _pingButton.IsEnabled = false;
+        _messageAckButton.IsEnabled = false;
         _echoCancellation?.Cancel();
 
         if (_echoTask is not null)
