@@ -20,11 +20,7 @@ public sealed class PeerConnectionObserverProbe : Object, PeerConnection.IObserv
 
     public void OnIceCandidate(IceCandidate? candidate) { }
 
-    public void OnIceCandidateError(IceCandidateErrorEvent? errorEvent) { }
-
     public void OnIceCandidatesRemoved(IceCandidate[]? candidates) { }
-
-    public void OnSelectedCandidatePairChanged(CandidatePairChangeEvent? candidatePairChangeEvent) { }
 
     public void OnAddStream(MediaStream? stream) { }
 
@@ -35,10 +31,6 @@ public sealed class PeerConnectionObserverProbe : Object, PeerConnection.IObserv
     public void OnRenegotiationNeeded() { }
 
     public void OnAddTrack(RtpReceiver? receiver, MediaStream[]? mediaStreams) { }
-
-    public void OnRemoveTrack(RtpReceiver? receiver) { }
-
-    public void OnTrack(RtpTransceiver? transceiver) { }
 }
 
 public sealed class SdpObserverProbe : Object, ISdpObserver
