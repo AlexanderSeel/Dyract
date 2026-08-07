@@ -92,7 +92,7 @@ public sealed class DirectoryClient
             throw new HttpRequestException(
                 $"Dyract directory request failed with {(int)response.StatusCode} {response.StatusCode}: {body}",
                 inner: null,
-                response.StatusCode);
+                statusCode: response.StatusCode);
         }
 
         return await response.Content.ReadFromJsonAsync<TResponse>(cancellationToken: cancellationToken)
