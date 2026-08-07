@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Dyract.App.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Dyract">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="28" Spacing="18">
+            <Label
+                FontAttributes="Bold"
+                FontSize="34"
+                Text="Dyract" />
+
+            <Label
+                FontSize="18"
+                Text="Direct by design." />
+
+            <Label
+                Margin="0,12,0,0"
+                Text="This installation owns a cryptographic identity. Your private identity key is kept in the device secure storage and is never registered with the directory server." />
+
+            <Border Padding="18" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+
+                <VerticalStackLayout Spacing="12">
+                    <Label
+                        FontAttributes="Bold"
+                        Text="Your Peer ID" />
+
+                    <Label
+                        x:Name="PeerIdLabel"
+                        FontFamily="monospace"
+                        LineBreakMode="CharacterWrap"
+                        Text="Creating secure identity…" />
+
+                    <Button
+                        x:Name="CopyPeerIdButton"
+                        Clicked="OnCopyPeerIdClicked"
+                        IsEnabled="False"
+                        Text="Copy Peer ID" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label
+                x:Name="StatusLabel"
+                Text="Initializing…" />
+
+            <Label
+                FontSize="12"
+                Text="Early development build — messaging and network transport are not enabled yet." />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
