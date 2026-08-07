@@ -2,7 +2,7 @@
 
 ## What is Dyract?
 
-Dyract is a direct-first messenger concept for Android and iPhone. Each installation owns a cryptographic identity and stores contacts, conversations, messages and attachments locally. A small central directory helps authenticated peers find one another, but it is not intended to store chat history.
+Dyract is a direct-first messenger concept for Android and iPhone. Each installation owns a cryptographic identity and is intended to store contacts, conversations, messages and attachments locally. A small central directory helps authenticated peers find one another, but it is not a chat-history service.
 
 ## Is Dyract completely serverless?
 
@@ -18,7 +18,7 @@ No. A Peer ID is similar to an address. It can be shared. Authentication comes f
 
 ## Why derive the Peer ID from the public key?
 
-It cryptographically binds the address to the identity key. The directory cannot legitimately assign an unrelated public key to the same Peer ID without finding a cryptographic hash collision. It also makes first-run identity creation independent from a central account-number allocator.
+It cryptographically binds the address to the identity key. The directory cannot legitimately assign unrelated public-key material to the same Peer ID without breaking the hash binding. It also makes first-run identity creation independent from a central account-number allocator.
 
 ## Is a GUID still used?
 
@@ -35,7 +35,7 @@ The intended production directory may know:
 - a push-routing token where background wake-up is enabled,
 - operational/security metadata required for abuse prevention.
 
-The current prototype stores identities in memory and short-lived presence separately in an ephemeral in-memory lease store.
+The current server can persist Peer ID/public-key registration in PostgreSQL when configured. Without a PostgreSQL connection string it uses an in-memory identity store. Presence, registration challenges and replay nonces remain ephemeral.
 
 It should not hold user-assigned contact names, address books, conversation bodies, attachments or message history.
 
@@ -47,7 +47,7 @@ Direct peers may also learn one another's network addresses. Users who require I
 
 ## Can any registered user look up another user's IP?
 
-No. Dyract now separates ordinary identity lookup from endpoint resolution.
+No. Dyract separates ordinary identity lookup from endpoint resolution.
 
 `/api/v1/peer/lookup` is an authenticated identity/public-key lookup and returns no connection candidates.
 
@@ -96,6 +96,12 @@ The bootstrap model accepts up to eight `host`, `srflx`, or `relay` candidates u
 
 This is only the directory representation. The later transport phase should use a mature ICE/STUN implementation rather than inventing a custom NAT traversal algorithm.
 
+## Does the API have basic abuse protection?
+
+Yes, as an initial layer. The prototype currently has separate per-client rate-limit budgets for registration and authenticated peer operations, plus a 64 KiB maximum request-body limit.
+
+These controls are not intended to be the final DDoS/abuse strategy; production still needs broader infrastructure-level protection and privacy-aware operational monitoring.
+
 ## Are messages stored on the server while the recipient is offline?
 
 Not in the intended architecture. An undelivered message remains in the sender's local outbox. The sender retries when connectivity is available.
@@ -134,17 +140,31 @@ The future peer-session protocol still needs an ephemeral key agreement, forward
 
 Designing a secure cryptographic primitive is substantially harder than designing an application protocol. Dyract should use established, reviewed primitives/libraries and keep custom code limited to protocol composition and application behavior.
 
-## Where is the private key stored?
+## Is there an Android/iPhone app yet?
 
-In the bootstrap library the key can be exported for tests/prototyping, but production mobile code must protect it using Android Keystore and iOS Keychain/Secure Enclave facilities as appropriate. It must not be stored as plain SQLite data.
+The first .NET MAUI shell is now in the repository. It currently performs the first-run identity flow, displays the resulting Peer ID and allows it to be copied. Contact storage, directory registration, chat UI and P2P transport are still to be implemented.
+
+## Where is the private key stored on the phone?
+
+The MAUI bootstrap stores the small PKCS#8 identity value through `SecureStorage.Default`. On Android MAUI uses Keystore-backed encrypted storage; on iOS it uses Keychain. Dyract does not write the private key into SQLite or a normal application file.
+
+This is a first security implementation, not the final key architecture. The shared cryptographic layer currently requires exportable PKCS#8 key material in application memory. A later hardening phase should evaluate non-exportable platform-native keys and Secure Enclave where appropriate.
+
+## What if secure storage becomes unreadable?
+
+Dyract deliberately does not silently generate a replacement identity. Replacing the key would also replace the Peer ID and could look like a legitimate continuation of the old identity. The current mobile vault reports the failure so a future recovery/reset UI can make that decision explicit.
 
 ## What happens if I uninstall the app?
 
-If the identity private key has no backup, uninstalling/clearing app data means losing that identity. That is a legitimate secure default. A later recovery/export feature must be explicit and encrypted; the directory should not silently keep recoverable private keys.
+Until an explicit recovery feature exists, the intended behavior is that a reinstall creates a new identity.
+
+On iOS, Keychain data can survive uninstall, so the current app uses a normal-installation marker and clears an old Dyract identity entry on the first launch of a fresh install. Android app backup is disabled so encrypted application state is not silently restored onto another installation/device.
+
+A later recovery/export feature must be explicit and encrypted; the directory should never hold recoverable private keys.
 
 ## Will Dyract use phone numbers or email addresses?
 
-They are not required by the architecture. Contact exchange can use a Peer ID plus a cryptographic contact capability, ideally through QR or a copyable invitation link.
+They are not required by the architecture. Contact exchange can use a Peer ID plus cryptographic invitation/capability data, ideally through QR or a copyable invitation link.
 
 ## Can users search for other users?
 
@@ -189,4 +209,4 @@ Dyract aims to minimize central data, not make impossible anonymity claims. Netw
 
 ## Is the current code production ready?
 
-No. Identity registration and capability-protected short-lived presence are now implemented, but the project still requires API integration tests, persistent identity storage, rate limits, mobile secure key storage, capability revocation, P2P transport, a reviewed encrypted session protocol and an independent security assessment before production use.
+No. Identity registration, capability-protected short-lived presence, API integration tests, basic rate/request limits, optional PostgreSQL identity persistence and the first MAUI secure-identity screen are implemented. The project still requires local message storage, contact onboarding, capability revocation, ICE/STUN/TURN transport, an authenticated forward-secret peer session protocol, mobile background delivery behavior, migrations/production operations and an independent security assessment before production use.
