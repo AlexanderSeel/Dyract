@@ -7,6 +7,7 @@ using Dyract.Crypto.Signatures;
 using Dyract.Protocol;
 using Dyract.Server.Services;
 using Microsoft.AspNetCore.RateLimiting;
+using Npgsql;
 
 const long MaxRequestBodyBytes = 64 * 1024;
 
@@ -22,7 +23,19 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.MaxDepth = 16;
 });
 
-builder.Services.AddSingleton<IIdentityStore, InMemoryIdentityStore>();
+var identityConnectionString = builder.Configuration.GetConnectionString("Dyract");
+if (string.IsNullOrWhiteSpace(identityConnectionString))
+{
+    builder.Services.AddSingleton<IIdentityStore, InMemoryIdentityStore>();
+}
+else
+{
+    var postgresConnectionString = identityConnectionString;
+    builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgresConnectionString));
+    builder.Services.AddSingleton<IIdentityStore, PostgresIdentityStore>();
+    builder.Services.AddHostedService<PostgresSchemaInitializer>();
+}
+
 builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<ReplayNonceStore>();
 builder.Services.AddSingleton<PresenceStore>();
@@ -40,6 +53,7 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 AutoReplenishment = true
             }));
 
@@ -51,6 +65,7 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 240,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 AutoReplenishment = true
             }));
 
@@ -59,7 +74,7 @@ builder.Services.AddRateLimiter(options =>
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsJsonAsync(
             new ApiError("rate_limited", "Too many directory requests. Retry after the current rate-limit window."),
-            cancellationToken);
+            cancellationToken: cancellationToken);
     };
 });
 
@@ -72,7 +87,7 @@ app.Use(async (context, next) =>
         context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
         await context.Response.WriteAsJsonAsync(
             new ApiError("request_too_large", $"Request body must not exceed {MaxRequestBodyBytes} bytes."),
-            context.RequestAborted);
+            cancellationToken: context.RequestAborted);
         return;
     }
 
@@ -125,11 +140,12 @@ static IResult CreateRegistrationChallenge(
         challenge.ExpiresAt.ToUnixTimeSeconds()));
 }
 
-static IResult RegisterPeer(
+static async Task<IResult> RegisterPeer(
     RegisterPeerRequest request,
     RegistrationChallengeStore challenges,
     IIdentityStore identities,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!PeerId.TryParse(request.PeerId, out var peerId))
     {
@@ -189,21 +205,28 @@ static IResult RegisterPeer(
         return Results.Conflict(new ApiError("challenge_consumed", "Registration challenge has already been consumed."));
     }
 
-    if (!identities.TryRegister(peerId, publicKey, now, out var registeredPeer))
+    var registration = await identities.RegisterAsync(
+        peerId,
+        publicKey,
+        now,
+        cancellationToken);
+
+    if (!registration.IsAccepted)
     {
         return Results.Conflict(new ApiError("identity_conflict", "Peer ID is already bound to different key material."));
     }
 
     return Results.Ok(new RegisterPeerResponse(
-        registeredPeer.PeerId.Value,
-        registeredPeer.RegisteredAt.ToUnixTimeSeconds()));
+        registration.Peer.PeerId.Value,
+        registration.Peer.RegisteredAt.ToUnixTimeSeconds()));
 }
 
-static IResult LookupPeer(
+static async Task<IResult> LookupPeer(
     PeerLookupRequest request,
     IIdentityStore identities,
     ReplayNonceStore replayNonces,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!PeerId.TryParse(request.RequesterPeerId, out var requesterId) ||
         !PeerId.TryParse(request.TargetPeerId, out var targetId))
@@ -211,7 +234,8 @@ static IResult LookupPeer(
         return BadRequest("invalid_peer_id", "RequesterPeerId or TargetPeerId is invalid.");
     }
 
-    if (!identities.TryGet(requesterId, out var requester))
+    var requester = await identities.GetAsync(requesterId, cancellationToken);
+    if (requester is null)
     {
         return Unauthorized("requester_unknown", "Requester is not a registered Dyract peer.");
     }
@@ -243,7 +267,8 @@ static IResult LookupPeer(
         return Unauthorized("replay_detected", "This signed lookup nonce has already been used.");
     }
 
-    if (!identities.TryGet(targetId, out var target))
+    var target = await identities.GetAsync(targetId, cancellationToken);
+    if (target is null)
     {
         return Results.NotFound(new ApiError("peer_not_found", "Target peer is not registered."));
     }
@@ -254,19 +279,21 @@ static IResult LookupPeer(
         target.RegisteredAt.ToUnixTimeSeconds()));
 }
 
-static IResult PublishPresence(
+static async Task<IResult> PublishPresence(
     PublishPresenceRequest request,
     IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!PeerId.TryParse(request.PeerId, out var peerId))
     {
         return BadRequest("invalid_peer_id", "PeerId is invalid.");
     }
 
-    if (!identities.TryGet(peerId, out var identity))
+    var identity = await identities.GetAsync(peerId, cancellationToken);
+    if (identity is null)
     {
         return Unauthorized("peer_unknown", "Peer is not registered.");
     }
@@ -326,19 +353,21 @@ static IResult PublishPresence(
         lease.ExpiresAt.ToUnixTimeSeconds()));
 }
 
-static IResult RemovePresence(
+static async Task<IResult> RemovePresence(
     RemovePresenceRequest request,
     IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!PeerId.TryParse(request.PeerId, out var peerId))
     {
         return BadRequest("invalid_peer_id", "PeerId is invalid.");
     }
 
-    if (!identities.TryGet(peerId, out var identity))
+    var identity = await identities.GetAsync(peerId, cancellationToken);
+    if (identity is null)
     {
         return Unauthorized("peer_unknown", "Peer is not registered.");
     }
@@ -373,12 +402,13 @@ static IResult RemovePresence(
     return Results.NoContent();
 }
 
-static IResult ResolvePeer(
+static async Task<IResult> ResolvePeer(
     ResolvePeerRequest request,
     IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!PeerId.TryParse(request.RequesterPeerId, out var requesterId) ||
         !PeerId.TryParse(request.TargetPeerId, out var targetId))
@@ -386,12 +416,14 @@ static IResult ResolvePeer(
         return BadRequest("invalid_peer_id", "RequesterPeerId or TargetPeerId is invalid.");
     }
 
-    if (!identities.TryGet(requesterId, out var requester))
+    var requester = await identities.GetAsync(requesterId, cancellationToken);
+    if (requester is null)
     {
         return Unauthorized("requester_unknown", "Requester is not a registered Dyract peer.");
     }
 
-    if (!identities.TryGet(targetId, out var target))
+    var target = await identities.GetAsync(targetId, cancellationToken);
+    if (target is null)
     {
         return Results.NotFound(new ApiError("peer_not_found", "Target peer is not registered."));
     }
