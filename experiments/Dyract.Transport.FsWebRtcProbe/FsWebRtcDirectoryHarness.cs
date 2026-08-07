@@ -48,10 +48,14 @@ public sealed class FsWebRtcDirectoryHarness : IAsyncDisposable
         _coordinator.OutboundSignalReady += OnOutboundSignalReady;
         _coordinator.IncomingDataChannel += channel => IncomingDataChannel?.Invoke(channel);
         _coordinator.ConnectionStateChanged += OnConnectionStateChanged;
+        _coordinator.LocalCandidateSummaryObserved += OnLocalCandidateSummaryObserved;
+        _coordinator.RemoteCandidateSummaryObserved += OnRemoteCandidateSummaryObserved;
     }
 
     public event Action<ExperimentalDataChannelAdapter>? IncomingDataChannel;
     public event Action<Exception>? ProtocolError;
+    public event Action<IceCandidatePrivacySummary>? LocalCandidateSummaryObserved;
+    public event Action<IceCandidatePrivacySummary>? RemoteCandidateSummaryObserved;
 
     public Task Connected => _connected.Task;
 
@@ -80,8 +84,11 @@ public sealed class FsWebRtcDirectoryHarness : IAsyncDisposable
 
         _coordinator.OutboundSignalReady -= OnOutboundSignalReady;
         _coordinator.ConnectionStateChanged -= OnConnectionStateChanged;
+        _coordinator.LocalCandidateSummaryObserved -= OnLocalCandidateSummaryObserved;
+        _coordinator.RemoteCandidateSummaryObserved -= OnRemoteCandidateSummaryObserved;
         _outbound.Writer.TryComplete();
         _runCancellation?.Cancel();
+        _connected.TrySetCanceled();
 
         if (_runTask is not null)
         {
@@ -203,6 +210,12 @@ public sealed class FsWebRtcDirectoryHarness : IAsyncDisposable
             _connected.TrySetException(new InvalidOperationException("Native WebRTC peer connection closed before becoming connected."));
         }
     }
+
+    private void OnLocalCandidateSummaryObserved(IceCandidatePrivacySummary summary)
+        => LocalCandidateSummaryObserved?.Invoke(summary);
+
+    private void OnRemoteCandidateSummaryObserved(IceCandidatePrivacySummary summary)
+        => RemoteCandidateSummaryObserved?.Invoke(summary);
 
     private void ThrowIfDisposed()
     {
