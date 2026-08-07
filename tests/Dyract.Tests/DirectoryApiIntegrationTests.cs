@@ -108,6 +108,81 @@ public sealed class DirectoryApiIntegrationTests
     }
 
     [Fact]
+    public async Task AuthorizedSignal_IsRetainedUntilTargetAcknowledgesIt()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var httpClient = factory.CreateClient();
+        var directory = new DirectoryClient(httpClient);
+        var signaling = new PeerSignalingClient(httpClient);
+        using var alice = PeerIdentity.Generate();
+        using var bob = PeerIdentity.Generate();
+
+        await directory.RegisterAsync(alice);
+        await directory.RegisterAsync(bob);
+
+        var capability = ContactCapabilityFactory.Create(
+            bob,
+            alice.PeerId.Value,
+            TimeSpan.FromMinutes(10));
+        var sessionId = PeerSignalingClient.CreateSessionId();
+
+        var sent = await signaling.SendAsync(
+            alice,
+            bob.PeerId.Value,
+            capability,
+            sessionId,
+            PeerSignalTypes.Offer,
+            "{\"type\":\"offer\",\"sdp\":\"opaque-test-offer\"}");
+
+        var firstFetch = await signaling.FetchAsync(bob);
+        Assert.Single(firstFetch.Signals);
+        Assert.Equal(sent.SignalId, firstFetch.Signals[0].SignalId);
+        Assert.Equal(alice.PeerId.Value, firstFetch.Signals[0].SenderPeerId);
+        Assert.Equal(sessionId, firstFetch.Signals[0].SessionId);
+        Assert.Equal(PeerSignalTypes.Offer, firstFetch.Signals[0].SignalType);
+
+        var secondFetch = await signaling.FetchAsync(bob);
+        Assert.Single(secondFetch.Signals);
+        Assert.Equal(sent.SignalId, secondFetch.Signals[0].SignalId);
+
+        await signaling.AckAsync(bob, new[] { sent.SignalId });
+
+        var afterAck = await signaling.FetchAsync(bob);
+        Assert.Empty(afterAck.Signals);
+    }
+
+    [Fact]
+    public async Task Signal_WithCapabilityForAnotherGrantee_IsRejected()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var httpClient = factory.CreateClient();
+        var directory = new DirectoryClient(httpClient);
+        var signaling = new PeerSignalingClient(httpClient);
+        using var alice = PeerIdentity.Generate();
+        using var bob = PeerIdentity.Generate();
+        using var mallory = PeerIdentity.Generate();
+
+        await directory.RegisterAsync(alice);
+        await directory.RegisterAsync(bob);
+        await directory.RegisterAsync(mallory);
+
+        var capabilityForMallory = ContactCapabilityFactory.Create(
+            bob,
+            mallory.PeerId.Value,
+            TimeSpan.FromMinutes(10));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => signaling.SendAsync(
+            alice,
+            bob.PeerId.Value,
+            capabilityForMallory,
+            PeerSignalingClient.CreateSessionId(),
+            PeerSignalTypes.Offer,
+            "opaque"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task OversizedRequest_IsRejectedBeforeEndpointProcessing()
     {
         using var factory = new WebApplicationFactory<Program>();
