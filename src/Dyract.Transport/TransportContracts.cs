@@ -68,4 +68,7 @@ public interface IPeerTransport : IAsyncDisposable
     Task<IPeerConnection> ConnectAsync(
         PeerConnectionDescriptor peer,
         CancellationToken cancellationToken = default);
+
+    IAsyncEnumerable<IPeerConnection> AcceptAsync(
+        CancellationToken cancellationToken = default);
 }
