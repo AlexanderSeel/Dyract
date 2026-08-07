@@ -186,19 +186,21 @@ public sealed class FsWebRtcDirectoryHarness : IAsyncDisposable
 
     private void OnConnectionStateChanged(PeerConnection.PeerConnectionState? state)
     {
-        switch (state)
+        if (state == PeerConnection.PeerConnectionState.Connected)
         {
-            case PeerConnection.PeerConnectionState.Connected:
-                _connected.TrySetResult();
-                break;
+            _connected.TrySetResult();
+            return;
+        }
 
-            case PeerConnection.PeerConnectionState.Failed:
-                _connected.TrySetException(new InvalidOperationException("Native WebRTC peer connection failed."));
-                break;
+        if (state == PeerConnection.PeerConnectionState.Failed)
+        {
+            _connected.TrySetException(new InvalidOperationException("Native WebRTC peer connection failed."));
+            return;
+        }
 
-            case PeerConnection.PeerConnectionState.Closed:
-                _connected.TrySetException(new InvalidOperationException("Native WebRTC peer connection closed before becoming connected."));
-                break;
+        if (state == PeerConnection.PeerConnectionState.Closed)
+        {
+            _connected.TrySetException(new InvalidOperationException("Native WebRTC peer connection closed before becoming connected."));
         }
     }
 
