@@ -35,6 +35,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Show validation snapshot
+        run: echo "Validating authenticated AES-GCM session frames"
+
       - name: Restore
         run: dotnet restore Dyract.slnx
 
