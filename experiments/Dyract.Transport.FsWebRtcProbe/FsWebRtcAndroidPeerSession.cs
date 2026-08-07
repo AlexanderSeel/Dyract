@@ -138,7 +138,6 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
         }
 
         _peerConnection.Close();
-        _peerConnection.Dispose();
         _observer.Dispose();
         _factory.Dispose();
     }
