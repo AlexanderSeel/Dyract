@@ -94,11 +94,12 @@ public static class PeerMessagingProtocol
         }
 
         var offset = 6;
-        var messageId = ReadAscii(packet.Slice(offset, MessageIdLength));
+        var encodedMessageId = ReadAscii(packet.Slice(offset, MessageIdLength));
         offset += MessageIdLength;
-        if (!TryNormalizeMessageId(messageId, out messageId))
+        if (!TryNormalizeMessageId(encodedMessageId, out var messageId) ||
+            !string.Equals(encodedMessageId, messageId, StringComparison.Ordinal))
         {
-            error = "Peer message ID is invalid.";
+            error = "Peer message ID is invalid or noncanonical.";
             return false;
         }
 
