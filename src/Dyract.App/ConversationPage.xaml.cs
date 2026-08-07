@@ -1,11 +1,15 @@
 using Dyract.App.Security;
+using Dyract.Client;
 using Dyract.Protocol;
 using Dyract.Storage;
+using Microsoft.Maui.ApplicationModel.DataTransfer;
 
 namespace Dyract.App;
 
 public partial class ConversationPage : ContentPage
 {
+    private static readonly TimeSpan PairingLifetime = TimeSpan.FromDays(30);
+
     private readonly ILocalStore _localStore;
     private readonly IIdentityVault _identityVault;
     private readonly LocalContact _contact;
@@ -28,6 +32,7 @@ public partial class ConversationPage : ContentPage
         ContactNameLabel.Text = contact.DisplayName;
         ContactPeerIdLabel.Text = contact.PeerId;
         ContactFingerprintLabel.Text = $"Fingerprint: {ContactInvitationCodec.GetFingerprint(contact.IdentityPublicKey)}";
+        PairingStateLabel.Text = GetPairingStateText(contact);
     }
 
     protected override async void OnAppearing()
@@ -47,6 +52,7 @@ public partial class ConversationPage : ContentPage
         {
             ConversationStatusLabel.Text = $"Conversation unavailable: {exception.Message}";
             SendButton.IsEnabled = false;
+            CopyPairingResponseButton.IsEnabled = false;
         }
     }
 
@@ -58,6 +64,7 @@ public partial class ConversationPage : ContentPage
         _conversation = await _localStore.GetOrCreateConversationAsync(_contact.PeerId);
         _initialized = true;
         SendButton.IsEnabled = true;
+        CopyPairingResponseButton.IsEnabled = true;
         ConversationStatusLabel.Text = "Local conversation ready. Network delivery is not connected yet.";
     }
 
@@ -74,6 +81,38 @@ public partial class ConversationPage : ContentPage
         if (messages.Count > 0)
         {
             MessagesView.ScrollTo(messages[^1], position: ScrollToPosition.End, animate: false);
+        }
+    }
+
+    private async void OnCopyPairingResponseClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        CopyPairingResponseButton.IsEnabled = false;
+        try
+        {
+            using var identity = await _identityVault.GetOrCreateAsync();
+            var capability = ContactCapabilityFactory.Create(
+                identity,
+                _contact.PeerId,
+                PairingLifetime);
+            var response = ContactPairingCodec.Encode(capability);
+
+            await Clipboard.Default.SetTextAsync(response);
+            var expiry = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds).ToLocalTime();
+            ConversationStatusLabel.Text =
+                $"Pairing response copied. {_contact.DisplayName} may import it to resolve you until {expiry:g}.";
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Pairing response could not be created: {exception.Message}";
+        }
+        finally
+        {
+            CopyPairingResponseButton.IsEnabled = _initialized;
         }
     }
 
@@ -120,5 +159,23 @@ public partial class ConversationPage : ContentPage
             _sending = false;
             SendButton.IsEnabled = _initialized;
         }
+    }
+
+    private static string GetPairingStateText(LocalContact contact)
+    {
+        if (contact.Capability is null)
+        {
+            return "You cannot resolve this contact yet. Import their pairing response first.";
+        }
+
+        if (!ContactPairingCodec.TryDecode(contact.Capability, out var capability, out _) || capability is null)
+        {
+            return "Stored pairing authorization is unreadable and should be replaced.";
+        }
+
+        var expiry = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds);
+        return expiry <= DateTimeOffset.UtcNow
+            ? "Stored pairing authorization has expired. Ask this contact for a new pairing response."
+            : $"You may resolve this contact until {expiry.ToLocalTime():g}.";
     }
 }
