@@ -24,7 +24,7 @@ public static class DataChannelApiProbe
     public static string ReadStateName(DataChannel dataChannel)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
-        return dataChannel.State()?.ToString() ?? string.Empty;
+        return dataChannel.State?.ToString() ?? string.Empty;
     }
 
     public static bool SendBinary(DataChannel dataChannel, byte[] payload)
