@@ -9,10 +9,19 @@
             <Border.StrokeShape>
                 <RoundRectangle CornerRadius="12" />
             </Border.StrokeShape>
-            <VerticalStackLayout Spacing="4">
+            <VerticalStackLayout Spacing="6">
                 <Label x:Name="ContactNameLabel" FontAttributes="Bold" FontSize="18" />
                 <Label x:Name="ContactPeerIdLabel" FontFamily="monospace" FontSize="10" LineBreakMode="CharacterWrap" />
                 <Label x:Name="ContactFingerprintLabel" FontFamily="monospace" FontSize="10" />
+                <Label x:Name="PairingStateLabel" FontSize="11" />
+                <Button
+                    x:Name="CopyPairingResponseButton"
+                    Clicked="OnCopyPairingResponseClicked"
+                    IsEnabled="False"
+                    Text="Copy pairing response for this contact" />
+                <Label
+                    FontSize="10"
+                    Text="This response grants this contact temporary permission to resolve your reachability. They must import it on their own device." />
             </VerticalStackLayout>
         </Border>
 
