@@ -10,6 +10,7 @@ on:
       - 'experiments/Dyract.Transport.AndroidHarness/**'
       - 'src/Dyract.Client/**'
       - 'src/Dyract.Crypto/**'
+      - 'src/Dyract.Storage/**'
       - 'src/Dyract.Transport/**'
       - 'src/Dyract.Protocol/**'
       - 'src/Dyract.Core/**'
@@ -45,6 +46,9 @@ jobs:
 
       - name: Show .NET environment
         run: dotnet --info
+
+      - name: Show validation snapshot
+        run: echo "Validating reliable message protocol, idempotent receive storage, scoped ACKs, and transport compatibility"
 
       - name: Install Android workload
         run: dotnet workload install maui-android
