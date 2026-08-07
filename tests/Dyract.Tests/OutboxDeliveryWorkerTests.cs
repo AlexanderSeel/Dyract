@@ -2,6 +2,7 @@ using Dyract.Client;
 using Dyract.Crypto.Identity;
 using Dyract.Protocol;
 using Dyract.Storage;
+using Dyract.Transport;
 using Xunit;
 
 namespace Dyract.Tests;
@@ -27,12 +28,13 @@ public sealed class OutboxDeliveryWorkerTests
 
         Assert.Equal(new OutboxDeliveryCycleResult(1, 1, 0, 0), result);
         Assert.Equal(remote.PeerId, sender.LastRecipient);
-        Assert.NotNull(sender.LastFrame);
-        Assert.True(PeerMessagingProtocol.TryDecode(sender.LastFrame, out var decoded, out var error), error);
+        Assert.NotNull(sender.LastFrameCopy);
+        Assert.True(PeerMessagingProtocol.TryDecode(sender.LastFrameCopy, out var decoded, out var error), error);
         var text = Assert.IsType<PeerTextMessageFrame>(decoded);
         Assert.Equal(MessageId, text.MessageId);
         Assert.Equal(now.AddMinutes(-1), text.CreatedAt);
         Assert.Equal("retry-safe payload", text.Text);
+        Assert.True(sender.LastBorrowedFrame.Span.IndexOfAnyExcept((byte)0) < 0);
         Assert.Equal(now.AddSeconds(10), queue.LastSentNextAttemptAt);
         Assert.Equal(1, queue.RecordSentCalls);
         Assert.Equal(0, queue.RecordFailureCalls);
@@ -59,6 +61,7 @@ public sealed class OutboxDeliveryWorkerTests
         Assert.Equal(new OutboxDeliveryCycleResult(1, 0, 1, 0), result);
         Assert.Equal("send:InvalidOperationException", queue.LastFailureCode);
         Assert.DoesNotContain("203.0.113.7", queue.LastFailureCode, StringComparison.Ordinal);
+        Assert.True(sender.LastBorrowedFrame.Span.IndexOfAnyExcept((byte)0) < 0);
         Assert.Equal(now.AddSeconds(16), queue.LastFailureNextAttemptAt);
         Assert.Equal(0, queue.RecordSentCalls);
         Assert.Equal(1, queue.RecordFailureCalls);
@@ -182,7 +185,8 @@ public sealed class OutboxDeliveryWorkerTests
         public Exception? Failure { get; init; }
         public int CallCount { get; private set; }
         public Dyract.Core.Identity.PeerId LastRecipient { get; private set; }
-        public byte[]? LastFrame { get; private set; }
+        public byte[]? LastFrameCopy { get; private set; }
+        public ReadOnlyMemory<byte> LastBorrowedFrame { get; private set; }
 
         public Task SendAsync(
             Dyract.Core.Identity.PeerId recipientPeerId,
@@ -190,13 +194,14 @@ public sealed class OutboxDeliveryWorkerTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            LastBorrowedFrame = frame;
+            LastFrameCopy = frame.ToArray();
             if (Failure is not null)
             {
                 throw Failure;
             }
 
             LastRecipient = recipientPeerId;
-            LastFrame = frame.ToArray();
             return Task.CompletedTask;
         }
     }
