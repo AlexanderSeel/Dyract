@@ -11,6 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/Dyract.Crypto/Dyract.Crypto.csproj" />
     <ProjectReference Include="../../src/Dyract.Transport/Dyract.Transport.csproj" />
   </ItemGroup>
 </Project>
