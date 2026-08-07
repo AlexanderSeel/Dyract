@@ -2,7 +2,7 @@
 
 **Direct by design.**
 
-Dyract is an experimental privacy-first messenger for Android and iPhone built around direct peer-to-peer communication. Each installation owns a cryptographic identity; contacts, local names, conversations and messages remain on the participating devices. The central service is intentionally narrow: identity registration, short-lived reachability, capability verification and later connection signaling/wake-up — not chat history.
+Dyract is an experimental privacy-first messenger for Android and iPhone built around direct peer-to-peer communication. Each installation owns a cryptographic identity; contacts, local names, conversations and messages remain on the participating devices. The central service is intentionally narrow: identity registration, short-lived reachability, capability-protected connection signaling and later wake-up — not chat history.
 
 > Dyract is still an implementation/protocol experiment. The cryptographic composition and mobile security model have not been independently audited and must not yet be treated as production-grade.
 
@@ -12,8 +12,9 @@ Dyract is an experimental privacy-first messenger for Android and iPhone built a
 - **Local-first data** — contacts, user-assigned names, conversations, message bodies and attachments do not belong in the directory.
 - **Minimal directory** — the server does not maintain profiles, a social/contact graph or message history.
 - **Pinned identities** — a contact invitation binds a Peer ID to public-key material and the mobile client stores that relationship locally.
-- **Explicit reachability authorization** — identity knowledge alone does not reveal an endpoint. A target signs a grantee-bound capability for the exact peer that may resolve it.
+- **Explicit reachability authorization** — identity knowledge alone does not reveal an endpoint. A target signs a grantee-bound capability for the exact peer that may resolve/signaling-connect to it.
 - **Short-lived presence** — published reachability leases expire within two minutes.
+- **Short-lived signaling** — offer/answer/ICE negotiation data expires within 60 seconds and is retained only until target ACK or expiry.
 - **Store before send** — an outgoing message is encrypted and committed to SQLite together with its outbox row before network delivery is attempted.
 - **Direct-first transport** — ICE/STUN direct connectivity is the target; TURN is an explicit fallback when direct establishment is impossible.
 - **No home-grown primitives** — Dyract composes established platform cryptography rather than inventing cryptographic algorithms.
@@ -27,7 +28,7 @@ Dyract is an experimental privacy-first messenger for Android and iPhone built a
                  | Peer ID + public key        |
                  | temporary presence leases   |
                  | capability verification     |
-                 | signaling (*)               |
+                 | ephemeral ICE signaling     |
                  | wake routing (*)            |
                  |                             |
                  | NO profiles                 |
@@ -36,7 +37,7 @@ Dyract is an experimental privacy-first messenger for Android and iPhone built a
                  | NO attachments              |
                  +--------------+--------------+
                                 |
-                     authenticated discovery
+                discovery / negotiation only
                                 |
                  +--------------+--------------+
                  |                             |
@@ -49,14 +50,14 @@ Dyract is an experimental privacy-first messenger for Android and iPhone built a
                  |                             |
                  +==== encrypted P2P (*) =====+
 
-(*) transport/signaling and wake-up are the next major phases
+(*) concrete transport and wake-up remain in progress/planned
 ```
 
 A raw `PeerId -> IP` table is not sufficient for mobile networks. NAT/CGNAT, Wi-Fi/cellular transitions and background restrictions require authenticated short-lived reachability plus NAT traversal. Dyract therefore treats an endpoint as an expiring connection candidate set, not a permanent address.
 
 ## Current implementation
 
-### Identity and directory
+### Identity, discovery and signaling
 
 - .NET 10 shared/server solution
 - ECDSA P-256 identity generation/signing through `System.Security.Cryptography`
@@ -69,11 +70,19 @@ A raw `PeerId -> IP` table is not sufficient for mobile networks. NAT/CGNAT, Wi-
 - max two-minute presence leases
 - bounded candidate validation
 - capability-protected `/api/v1/peer/resolve`
+- capability-protected short-lived signaling send
+- target-signed signaling fetch and explicit ACK
+- signaling types limited to `offer`, `answer`, `candidate`, `end-of-candidates`, `close`
+- signal TTL max 60 seconds
+- signal payload max 32 KiB UTF-8
+- max 64 pending signals per target and 20 per fetch batch
 - async `IIdentityStore`
 - zero-setup in-memory identity store
 - optional PostgreSQL identity persistence via Npgsql
 - request-body limits + per-client API rate limits
 - unit and ASP.NET integration coverage
+
+Signaling is intentionally **not a chat mailbox**. It carries only short-lived connection negotiation data. Message bodies remain in the encrypted local outbox until a peer channel can deliver them.
 
 ### Mobile client
 
@@ -89,6 +98,7 @@ A raw `PeerId -> IP` table is not sufficient for mobile networks. NAT/CGNAT, Wi-
 - mobile identity registration with the directory
 - capability-protected reachability check for paired contacts
 - directory-returned public key pinned against the locally saved contact key
+- authenticated `IDirectorySignalingService` adapter for future transport implementations
 - contact list and conversation screen
 - locally queued text messages
 - Android cleartext networking disabled
@@ -136,6 +146,25 @@ user presses Send
 
 A crash before the transaction commits leaves no half-message. A crash after the commit leaves the message safely queued locally.
 
+### Transport boundary
+
+`Dyract.Transport` already defines a replaceable transport contract:
+
+```text
+IPeerTransport
+  StartAsync
+  ConnectAsync
+  AcceptAsync
+
+IPeerConnection
+  SendAsync
+  ReceiveAsync
+```
+
+It also defines `DirectOnly` and `AllowRelay`, validates resolved leases/candidates client-side and refuses relay-only connectivity in `DirectOnly` mode.
+
+No WebRTC/ICE library is a production dependency yet. See [`docs/transport-spike.md`](docs/transport-spike.md) for candidate analysis and physical-device exit criteria.
+
 ## Contact and pairing flow
 
 Identity exchange and reachability authorization are deliberately separate.
@@ -158,28 +187,28 @@ For example, Bob's pairing response for Alice means:
 
 ```text
 issuer   = Bob
- grantee = Alice
+grantee  = Alice
 ```
 
-Alice can store it and use it to resolve Bob. Copying that response to Charlie does not authorize Charlie because Charlie cannot satisfy the grantee identity/signature checks.
+Alice can store it and use it to resolve Bob and send Bob connection-negotiation signals. Copying that response to Charlie does not authorize Charlie because Charlie cannot satisfy the grantee identity/signature checks.
 
 The directory does not need an `Alice is friends with Bob` table.
 
 ## Repository layout
 
 ```text
-Dyract.slnx            workload-free core/server/storage/test solution
+Dyract.slnx            workload-free core/server/storage/transport/test solution
 Dyract.Mobile.slnx     MAUI/mobile development solution
 
 src/
   Dyract.App/          .NET MAUI Android/iOS client
-  Dyract.Client/       directory client, invitation/capability helpers
+  Dyract.Client/       directory/signaling client, invitation/capability helpers
   Dyract.Core/         identity/domain primitives
   Dyract.Crypto/       identity cryptography/signature verification
   Dyract.Protocol/     versioned contracts and canonical signed payloads
-  Dyract.Server/       identity, presence and discovery service
+  Dyract.Server/       identity, presence, discovery and signaling service
   Dyract.Storage/      encrypted local SQLite repositories/outbox
-  Dyract.Transport/    planned direct transport abstraction
+  Dyract.Transport/    replaceable peer transport contracts/safety boundary
 
 tests/
   Dyract.Tests/        unit + ASP.NET integration tests
@@ -229,7 +258,7 @@ ConnectionStrings__Dyract=Host=localhost;Port=5432;Database=dyract;Username=dyra
 
 The prototype currently creates the `peer_identity` table automatically. Production deployment should replace this bootstrap behavior with explicit migrations.
 
-Presence, challenges and replay nonces remain ephemeral even when PostgreSQL is enabled.
+Presence, challenges, replay nonces and signaling remain ephemeral even when PostgreSQL is enabled.
 
 ## API
 
@@ -241,6 +270,9 @@ POST /api/v1/peer/lookup
 POST /api/v1/presence
 POST /api/v1/presence/remove
 POST /api/v1/peer/resolve
+POST /api/v1/signal/send
+POST /api/v1/signal/fetch
+POST /api/v1/signal/ack
 ```
 
 Initial limits:
@@ -249,6 +281,10 @@ Initial limits:
 registration endpoints    30 requests/minute/client address
 peer operations          240 requests/minute/client address
 maximum request body      64 KiB
+signal payload            32 KiB UTF-8
+signal TTL                60 seconds
+pending signals/target    64
+signal fetch batch        20
 ```
 
 These are first-line abuse controls, not a complete DDoS strategy.
@@ -272,9 +308,9 @@ Before production use Dyract still requires, at minimum:
 
 ## Next technical milestone
 
-The next major implementation is `Dyract.Transport`: establish a real direct peer channel from the directory's authorized reachability result, initially with ICE/STUN and a data-only WebRTC/ICE spike. The transport must remain replaceable so Dyract is not coupled to one networking library before Android/iOS physical-device testing proves it works reliably.
+The next major implementation is the concrete `Dyract.Transport` spike: establish a real data-only peer channel using the now-implemented Dyract reachability + signaling layers. The first candidate experiment is native WebRTC/ICE behind the existing transport abstraction, with Android↔Android followed by Android↔iPhone physical-device testing before any library becomes a production commitment.
 
-See [plan.md](plan.md) for the roadmap and [faq.md](faq.md) for design decisions and limitations. Mobile-specific notes are in [`src/Dyract.App/README.md`](src/Dyract.App/README.md).
+See [`docs/transport-spike.md`](docs/transport-spike.md), [plan.md](plan.md) and [faq.md](faq.md). Mobile-specific notes are in [`src/Dyract.App/README.md`](src/Dyract.App/README.md).
 
 ## Name
 
