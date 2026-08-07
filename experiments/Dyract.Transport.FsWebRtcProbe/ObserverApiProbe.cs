@@ -1,10 +1,9 @@
 #if ANDROID
-using Java.Lang;
 using Org.Webrtc;
 
 namespace Dyract.Transport.FsWebRtcProbe;
 
-public sealed class PeerConnectionObserverProbe : Object, PeerConnection.IObserver
+public sealed class PeerConnectionObserverProbe : Java.Lang.Object, PeerConnection.IObserver
 {
     public void OnSignalingChange(PeerConnection.SignalingState? newState) { }
 
@@ -33,7 +32,7 @@ public sealed class PeerConnectionObserverProbe : Object, PeerConnection.IObserv
     public void OnAddTrack(RtpReceiver? receiver, MediaStream[]? mediaStreams) { }
 }
 
-public sealed class SdpObserverProbe : Object, ISdpObserver
+public sealed class SdpObserverProbe : Java.Lang.Object, ISdpObserver
 {
     public void OnCreateSuccess(SessionDescription? description) { }
 
@@ -44,7 +43,7 @@ public sealed class SdpObserverProbe : Object, ISdpObserver
     public void OnSetFailure(string? error) { }
 }
 
-public sealed class DataChannelObserverProbe : Object, DataChannel.IObserver
+public sealed class DataChannelObserverProbe : Java.Lang.Object, DataChannel.IObserver
 {
     public void OnBufferedAmountChange(long previousAmount) { }
 
