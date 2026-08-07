@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/Dyract.Client/Dyract.Client.csproj" />
     <ProjectReference Include="../../src/Dyract.Core/Dyract.Core.csproj" />
     <ProjectReference Include="../../src/Dyract.Crypto/Dyract.Crypto.csproj" />
     <ProjectReference Include="../../src/Dyract.Protocol/Dyract.Protocol.csproj" />
