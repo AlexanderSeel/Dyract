@@ -4,6 +4,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Dyract.Core/Dyract.Core.csproj" />
     <ProjectReference Include="../Dyract.Crypto/Dyract.Crypto.csproj" />
     <ProjectReference Include="../Dyract.Protocol/Dyract.Protocol.csproj" />
