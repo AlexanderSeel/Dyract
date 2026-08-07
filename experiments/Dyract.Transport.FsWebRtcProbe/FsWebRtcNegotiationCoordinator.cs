@@ -40,6 +40,8 @@ public sealed class FsWebRtcNegotiationCoordinator : IAsyncDisposable
     public event Action<ExperimentalOutboundSignal>? OutboundSignalReady;
     public event Action<ExperimentalDataChannelAdapter>? IncomingDataChannel;
     public event Action<PeerConnection.PeerConnectionState?>? ConnectionStateChanged;
+    public event Action<IceCandidatePrivacySummary>? LocalCandidateSummaryObserved;
+    public event Action<IceCandidatePrivacySummary>? RemoteCandidateSummaryObserved;
 
     public ExperimentalDataChannelAdapter CreateOutgoingDataChannel(string label = "dyract")
     {
@@ -154,6 +156,11 @@ public sealed class FsWebRtcNegotiationCoordinator : IAsyncDisposable
 
     private void AddRemoteCandidate(PeerIceCandidateSignal candidate)
     {
+        if (IceCandidatePrivacySummary.TryParse(candidate.Candidate, out var summary))
+        {
+            RemoteCandidateSummaryObserved?.Invoke(summary);
+        }
+
         if (!_session.AddRemoteIceCandidate(new ExperimentalIceCandidate(
                 candidate.SdpMid,
                 candidate.SdpMLineIndex,
@@ -168,6 +175,11 @@ public sealed class FsWebRtcNegotiationCoordinator : IAsyncDisposable
         if (Volatile.Read(ref _disposed) != 0)
         {
             return;
+        }
+
+        if (IceCandidatePrivacySummary.TryParse(candidate.Sdp, out var summary))
+        {
+            LocalCandidateSummaryObserved?.Invoke(summary);
         }
 
         Emit(
