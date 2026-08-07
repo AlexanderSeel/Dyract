@@ -79,4 +79,57 @@ public sealed record ResolvePeerResponse(
     ConnectionCandidate[] Candidates,
     long? LeaseExpiresUnixSeconds);
 
+public static class PeerSignalTypes
+{
+    public const string Offer = "offer";
+    public const string Answer = "answer";
+    public const string Candidate = "candidate";
+    public const string EndOfCandidates = "end-of-candidates";
+    public const string Close = "close";
+
+    public static bool IsSupported(string? value)
+        => value is Offer or Answer or Candidate or EndOfCandidates or Close;
+}
+
+public sealed record SendPeerSignalRequest(
+    string SenderPeerId,
+    string TargetPeerId,
+    ContactCapability Capability,
+    string SessionId,
+    string SignalType,
+    string Payload,
+    long SignalExpiresUnixSeconds,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
+public sealed record SendPeerSignalResponse(
+    string SignalId,
+    long ExpiresUnixSeconds);
+
+public sealed record FetchPeerSignalsRequest(
+    string PeerId,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
+public sealed record PeerSignalEnvelope(
+    string SignalId,
+    string SenderPeerId,
+    string SessionId,
+    string SignalType,
+    string Payload,
+    long CreatedUnixSeconds,
+    long ExpiresUnixSeconds);
+
+public sealed record FetchPeerSignalsResponse(
+    PeerSignalEnvelope[] Signals);
+
+public sealed record AckPeerSignalsRequest(
+    string PeerId,
+    string[] SignalIds,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
 public sealed record ApiError(string Code, string Message);
