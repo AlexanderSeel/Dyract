@@ -10,6 +10,7 @@ on:
       - 'experiments/Dyract.Transport.AndroidHarness/**'
       - 'src/Dyract.Client/**'
       - 'src/Dyract.Crypto/**'
+      - 'src/Dyract.Storage/**'
       - 'src/Dyract.Transport/**'
       - 'src/Dyract.Protocol/**'
       - 'src/Dyract.Core/**'
