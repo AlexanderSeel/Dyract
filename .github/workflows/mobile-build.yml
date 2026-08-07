@@ -11,6 +11,7 @@ on:
       - 'src/Dyract.Core/**'
       - 'src/Dyract.Crypto/**'
       - 'src/Dyract.Protocol/**'
+      - 'src/Dyract.Storage/**'
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
 
