@@ -35,6 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show runner kernel
+        run: uname -a
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
