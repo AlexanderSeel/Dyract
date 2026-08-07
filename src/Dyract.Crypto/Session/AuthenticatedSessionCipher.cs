@@ -10,7 +10,7 @@ public sealed class AuthenticatedSessionCipher : IDisposable
     private const int HeaderLength = 4 + 1 + 8 + 4;
     private const int TagLength = 16;
     private const int NonceLength = 12;
-    public const int MaximumPlaintextBytes = 256 * 1024;
+    public const int MaximumPlaintextBytes = (256 * 1024) - HeaderLength - TagLength;
 
     private readonly AesGcm _sendCipher;
     private readonly AesGcm _receiveCipher;
@@ -47,7 +47,7 @@ public sealed class AuthenticatedSessionCipher : IDisposable
                 throw new CryptographicException("Authenticated session send sequence is exhausted.");
             }
 
-            var sequence = _sendSequence++;
+            var sequence = _sendSequence;
             var frame = new byte[HeaderLength + plaintext.Length + TagLength];
             WriteHeader(frame, sequence, plaintext.Length);
 
@@ -57,12 +57,19 @@ public sealed class AuthenticatedSessionCipher : IDisposable
             frame.AsSpan(0, HeaderLength).CopyTo(associatedData);
             _transcriptHash.CopyTo(associatedData[HeaderLength..]);
 
-            var ciphertext = frame.AsSpan(HeaderLength, plaintext.Length);
-            var tag = frame.AsSpan(HeaderLength + plaintext.Length, TagLength);
-            _sendCipher.Encrypt(nonce, plaintext, ciphertext, tag, associatedData);
-            CryptographicOperations.ZeroMemory(nonce);
-            CryptographicOperations.ZeroMemory(associatedData);
-            return frame;
+            try
+            {
+                var ciphertext = frame.AsSpan(HeaderLength, plaintext.Length);
+                var tag = frame.AsSpan(HeaderLength + plaintext.Length, TagLength);
+                _sendCipher.Encrypt(nonce, plaintext, ciphertext, tag, associatedData);
+                _sendSequence++;
+                return frame;
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(nonce);
+                CryptographicOperations.ZeroMemory(associatedData);
+            }
         }
     }
 
