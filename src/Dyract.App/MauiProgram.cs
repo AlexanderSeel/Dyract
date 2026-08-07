@@ -1,6 +1,7 @@
 using Dyract.App.Directory;
 using Dyract.App.Security;
 using Dyract.Storage;
+using Dyract.Transport;
 
 namespace Dyract.App;
 
@@ -22,6 +23,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
         builder.Services.AddSingleton<IDirectoryService, DirectoryService>();
         builder.Services.AddSingleton<IDirectorySignalingService, DirectorySignalingService>();
+        builder.Services.AddSingleton<IPeerSignalingGateway, DirectoryPeerSignalingGateway>();
         builder.Services.AddSingleton<MainPage>();
 
         return builder.Build();
