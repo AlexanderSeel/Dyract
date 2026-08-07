@@ -35,6 +35,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Show validation snapshot
+        run: echo "Validating transport-owned application frame sender and plaintext clearing"
+
       - name: Restore
         run: dotnet restore Dyract.slnx
 
