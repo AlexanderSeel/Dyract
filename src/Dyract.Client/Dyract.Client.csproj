@@ -4,6 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Dyract.Core/Dyract.Core.csproj" />
     <ProjectReference Include="../Dyract.Crypto/Dyract.Crypto.csproj" />
     <ProjectReference Include="../Dyract.Protocol/Dyract.Protocol.csproj" />
   </ItemGroup>
