@@ -7,8 +7,10 @@ namespace Dyract.Protocol;
 public abstract record PeerApplicationFrame(
     string MessageId,
     PeerId SenderPeerId,
-    PeerId RecipientPeerId,
-    DateTimeOffset Timestamp);
+    PeerId RecipientPeerId)
+{
+    public abstract DateTimeOffset Timestamp { get; }
+}
 
 public sealed record PeerTextMessageFrame(
     string MessageId,
@@ -16,14 +18,20 @@ public sealed record PeerTextMessageFrame(
     PeerId RecipientPeerId,
     DateTimeOffset CreatedAt,
     string Text)
-    : PeerApplicationFrame(MessageId, SenderPeerId, RecipientPeerId, CreatedAt);
+    : PeerApplicationFrame(MessageId, SenderPeerId, RecipientPeerId)
+{
+    public override DateTimeOffset Timestamp => CreatedAt;
+}
 
 public sealed record PeerDeliveryAckFrame(
     string MessageId,
     PeerId SenderPeerId,
     PeerId RecipientPeerId,
     DateTimeOffset DeliveredAt)
-    : PeerApplicationFrame(MessageId, SenderPeerId, RecipientPeerId, DeliveredAt);
+    : PeerApplicationFrame(MessageId, SenderPeerId, RecipientPeerId)
+{
+    public override DateTimeOffset Timestamp => DeliveredAt;
+}
 
 public static class PeerMessagingProtocol
 {
@@ -286,6 +294,12 @@ public static class PeerMessagingProtocol
             !string.Equals(messageId, normalized, StringComparison.Ordinal))
         {
             throw new ArgumentException("Message ID must be a lowercase 128-bit hexadecimal identifier.", nameof(messageId));
+        }
+
+        if (string.IsNullOrWhiteSpace(senderPeerId.Value) ||
+            string.IsNullOrWhiteSpace(recipientPeerId.Value))
+        {
+            throw new ArgumentException("Sender and recipient Peer IDs must be initialized.");
         }
 
         if (senderPeerId == recipientPeerId)
