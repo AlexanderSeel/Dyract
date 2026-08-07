@@ -1,20 +1,85 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Threading.RateLimiting;
 using Dyract.Core.Identity;
 using Dyract.Crypto.Signatures;
 using Dyract.Protocol;
 using Dyract.Server.Services;
+using Microsoft.AspNetCore.RateLimiting;
+
+const long MaxRequestBodyBytes = 64 * 1024;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<IdentityStore>();
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = MaxRequestBodyBytes;
+});
+
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.MaxDepth = 16;
+});
+
+builder.Services.AddSingleton<IIdentityStore, InMemoryIdentityStore>();
 builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<ReplayNonceStore>();
 builder.Services.AddSingleton<PresenceStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("registration", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: GetClientPartitionKey(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy("peer-operations", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: GetClientPartitionKey(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 240,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new ApiError("rate_limited", "Too many directory requests. Retry after the current rate-limit window."),
+            cancellationToken);
+    };
+});
+
 var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.ContentLength is > MaxRequestBodyBytes)
+    {
+        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+        await context.Response.WriteAsJsonAsync(
+            new ApiError("request_too_large", $"Request body must not exceed {MaxRequestBodyBytes} bytes."),
+            context.RequestAborted);
+        return;
+    }
+
+    await next();
+});
+
+app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new
 {
@@ -24,12 +89,18 @@ app.MapGet("/health", () => Results.Ok(new
 }));
 
 var api = app.MapGroup("/api/v1");
-api.MapPost("/identity/challenge", CreateRegistrationChallenge);
-api.MapPost("/identity/register", RegisterPeer);
-api.MapPost("/peer/lookup", LookupPeer);
-api.MapPost("/presence", PublishPresence);
-api.MapPost("/presence/remove", RemovePresence);
-api.MapPost("/peer/resolve", ResolvePeer);
+api.MapPost("/identity/challenge", CreateRegistrationChallenge)
+    .RequireRateLimiting("registration");
+api.MapPost("/identity/register", RegisterPeer)
+    .RequireRateLimiting("registration");
+api.MapPost("/peer/lookup", LookupPeer)
+    .RequireRateLimiting("peer-operations");
+api.MapPost("/presence", PublishPresence)
+    .RequireRateLimiting("peer-operations");
+api.MapPost("/presence/remove", RemovePresence)
+    .RequireRateLimiting("peer-operations");
+api.MapPost("/peer/resolve", ResolvePeer)
+    .RequireRateLimiting("peer-operations");
 
 app.Run();
 
@@ -57,7 +128,7 @@ static IResult CreateRegistrationChallenge(
 static IResult RegisterPeer(
     RegisterPeerRequest request,
     RegistrationChallengeStore challenges,
-    IdentityStore identities,
+    IIdentityStore identities,
     TimeProvider timeProvider)
 {
     if (!PeerId.TryParse(request.PeerId, out var peerId))
@@ -130,7 +201,7 @@ static IResult RegisterPeer(
 
 static IResult LookupPeer(
     PeerLookupRequest request,
-    IdentityStore identities,
+    IIdentityStore identities,
     ReplayNonceStore replayNonces,
     TimeProvider timeProvider)
 {
@@ -185,7 +256,7 @@ static IResult LookupPeer(
 
 static IResult PublishPresence(
     PublishPresenceRequest request,
-    IdentityStore identities,
+    IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
     TimeProvider timeProvider)
@@ -257,7 +328,7 @@ static IResult PublishPresence(
 
 static IResult RemovePresence(
     RemovePresenceRequest request,
-    IdentityStore identities,
+    IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
     TimeProvider timeProvider)
@@ -304,7 +375,7 @@ static IResult RemovePresence(
 
 static IResult ResolvePeer(
     ResolvePeerRequest request,
-    IdentityStore identities,
+    IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
     TimeProvider timeProvider)
@@ -558,6 +629,9 @@ static bool TryUnixTime(long unixSeconds, out DateTimeOffset value)
     }
 }
 
+static string GetClientPartitionKey(HttpContext context)
+    => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
 static IResult BadRequest(string code, string message)
     => Results.BadRequest(new ApiError(code, message));
 
@@ -584,4 +658,8 @@ static bool TryDecodeBase64(string? value, int maximumBytes, out byte[] bytes)
     {
         return false;
     }
+}
+
+public partial class Program
+{
 }
