@@ -2,6 +2,7 @@ using Dyract.Client;
 using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
 using Dyract.Storage;
+using Dyract.Transport;
 using Xunit;
 
 namespace Dyract.Tests;
