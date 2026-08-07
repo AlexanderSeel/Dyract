@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Dyract.Protocol;
@@ -111,6 +112,76 @@ public static class ProofPayload
 
         return Encoding.UTF8.GetBytes(
             $"dyract:resolve:v1\n{requesterPeerId}\n{targetPeerId}\n{capabilityId}\n{timestampUnixSeconds}\n{nonce}");
+    }
+
+    public static byte[] ForSignalSend(
+        string senderPeerId,
+        string targetPeerId,
+        string capabilityId,
+        string sessionId,
+        string signalType,
+        string payload,
+        long signalExpiresUnixSeconds,
+        long timestampUnixSeconds,
+        string nonce)
+    {
+        ValidateField(senderPeerId, nameof(senderPeerId));
+        ValidateField(targetPeerId, nameof(targetPeerId));
+        ValidateField(capabilityId, nameof(capabilityId));
+        ValidateField(sessionId, nameof(sessionId));
+        ValidateField(signalType, nameof(signalType));
+        ValidateField(nonce, nameof(nonce));
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var payloadBytes = Encoding.UTF8.GetBytes(payload);
+        var payloadHash = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant();
+
+        return Encoding.UTF8.GetBytes(
+            $"dyract:signal-send:v1\n{senderPeerId}\n{targetPeerId}\n{capabilityId}\n{sessionId}\n{signalType}\n{payloadHash}\n{signalExpiresUnixSeconds}\n{timestampUnixSeconds}\n{nonce}");
+    }
+
+    public static byte[] ForSignalFetch(
+        string peerId,
+        long timestampUnixSeconds,
+        string nonce)
+    {
+        ValidateField(peerId, nameof(peerId));
+        ValidateField(nonce, nameof(nonce));
+
+        return Encoding.UTF8.GetBytes(
+            $"dyract:signal-fetch:v1\n{peerId}\n{timestampUnixSeconds}\n{nonce}");
+    }
+
+    public static byte[] ForSignalAck(
+        string peerId,
+        IReadOnlyCollection<string> signalIds,
+        long timestampUnixSeconds,
+        string nonce)
+    {
+        ValidateField(peerId, nameof(peerId));
+        ValidateField(nonce, nameof(nonce));
+        ArgumentNullException.ThrowIfNull(signalIds);
+
+        var orderedIds = signalIds.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        if (orderedIds.Length == 0)
+        {
+            throw new ArgumentException("At least one signal ID is required.", nameof(signalIds));
+        }
+
+        var builder = new StringBuilder()
+            .Append("dyract:signal-ack:v1\n")
+            .Append(peerId).Append('\n')
+            .Append(timestampUnixSeconds).Append('\n')
+            .Append(nonce).Append('\n')
+            .Append(orderedIds.Length);
+
+        foreach (var signalId in orderedIds)
+        {
+            ValidateField(signalId, nameof(signalIds));
+            builder.Append('\n').Append(signalId);
+        }
+
+        return Encoding.UTF8.GetBytes(builder.ToString());
     }
 
     private static void ValidateField(string value, string parameterName)
