@@ -54,6 +54,39 @@
                 </Border.StrokeShape>
 
                 <VerticalStackLayout Spacing="10">
+                    <Label FontAttributes="Bold" Text="Directory" />
+                    <Label
+                        FontSize="12"
+                        Text="Configure the minimal Dyract directory used for identity registration and capability-protected reachability lookup. HTTPS is required." />
+                    <Entry
+                        x:Name="DirectoryUrlEntry"
+                        Keyboard="Url"
+                        Placeholder="https://directory.example.com/" />
+                    <HorizontalStackLayout Spacing="10">
+                        <Button
+                            x:Name="SaveDirectoryButton"
+                            Clicked="OnSaveDirectoryClicked"
+                            IsEnabled="False"
+                            Text="Save directory" />
+                        <Button
+                            x:Name="RegisterDirectoryButton"
+                            Clicked="OnRegisterDirectoryClicked"
+                            IsEnabled="False"
+                            Text="Register identity" />
+                    </HorizontalStackLayout>
+                    <Label
+                        x:Name="DirectoryStatusLabel"
+                        FontSize="11"
+                        Text="No directory configured." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+
+                <VerticalStackLayout Spacing="10">
                     <Label FontAttributes="Bold" Text="Add or pair contact" />
                     <Label
                         FontSize="12"
@@ -107,7 +140,7 @@
 
             <Label
                 FontSize="11"
-                Text="Early development build — messages are stored and queued locally, but P2P delivery is not connected yet." />
+                Text="Early development build — messages are stored and queued locally; directory discovery is available, but P2P transport is not connected yet." />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
