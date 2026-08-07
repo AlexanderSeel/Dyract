@@ -43,6 +43,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show SDK version
+        run: dotnet --version
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
