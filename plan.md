@@ -66,13 +66,12 @@ src/
   Dyract.Transport/     peer transport abstractions (phase 3)
   Dyract.Storage/       SQLite/local repositories (phase 2)
 tests/
-  Dyract.Tests/
-  Dyract.IntegrationTests/ (later)
+  Dyract.Tests/         unit + ASP.NET integration tests
 ```
 
 ## 5. Phase 0 — identity/directory bootstrap
 
-**Status: core bootstrap implemented.**
+**Status: implemented; production hardening continues.**
 
 ### Scope
 
@@ -84,19 +83,22 @@ tests/
 - [x] Add request timestamp validation.
 - [x] Add replay-nonce protection.
 - [x] Add reusable directory client.
-- [x] Add initial unit tests.
-- [ ] Add integration tests around the ASP.NET API.
-- [ ] Add structured logging/metrics without logging sensitive payloads.
-- [ ] Add server rate limiting and request-size limits.
-- [ ] Persist registered identities in PostgreSQL behind an interface.
+- [x] Add unit tests.
+- [x] Add ASP.NET integration tests around the API.
+- [x] Add server rate limiting and request-size limits.
+- [x] Put identity persistence behind an async interface.
+- [x] Add optional PostgreSQL identity persistence.
+- [ ] Replace prototype automatic PostgreSQL schema creation with explicit migrations.
+- [ ] Add structured privacy-aware logging/metrics without sensitive payloads.
+- [ ] Add PostgreSQL integration tests in CI.
 
 ### Exit criteria
 
-Two generated identities can register against a local server. A registered peer can perform a correctly signed lookup of another registered peer. Modified, expired, replayed or unsigned requests are rejected.
+Two generated identities can register against a local server. A registered peer can perform a correctly signed lookup of another registered peer. Modified, expired, replayed or unsigned requests are rejected. The API has bounded request size/basic rate limiting and can persist identity/public-key registrations in PostgreSQL when configured.
 
 ## 6. Phase 1 — contact authorization and presence
 
-**Status: first implementation complete.**
+**Status: first implementation and HTTP authorization coverage complete.**
 
 This phase turns the identity registry into a safe discovery service.
 
@@ -142,9 +144,9 @@ Implemented requirements:
 - [x] Request timestamp and replay-nonce validation.
 - [x] Candidate count/address/protocol/port validation.
 - [x] Unit tests for signed capability/proof and presence expiry behavior.
+- [x] ASP.NET end-to-end registration/presence/capability authorization tests.
 - [ ] Redis or equivalent ephemeral store when horizontal scaling requires it.
 - [ ] Capability revocation/rotation mechanism.
-- [ ] ASP.NET end-to-end authorization tests.
 
 Current candidate model:
 
@@ -160,9 +162,7 @@ Loopback, unspecified, multicast and broadcast addresses are rejected. A maximum
 
 ### Exit criteria
 
-The implementation now supports the intended flow: Peer A can publish a short-lived endpoint lease, and an authenticated Peer B can resolve that lease only when it presents a valid capability signed by Peer A for Peer B. Knowing Peer A's Peer ID alone does not disclose endpoint candidates.
-
-Formal API integration tests remain before this phase is considered hardened.
+Peer A can publish a short-lived endpoint lease, and an authenticated Peer B can resolve that lease only when it presents a valid capability signed by Peer A specifically for Peer B. Knowing Peer A's Peer ID alone does not disclose endpoint candidates. HTTP integration coverage verifies both authorized and wrong-grantee cases.
 
 ## 7. Phase 2 — local mobile foundation
 
@@ -356,11 +356,13 @@ TURN          optional encrypted packet relay
 
 Requirements:
 
+- [x] PostgreSQL-backed identity/public-key store available when configured.
+- [x] Basic per-client API rate limiting and request-size limits.
+- [ ] Explicit database migrations and PostgreSQL integration CI.
 - [ ] Horizontal scaling.
-- [ ] abuse protection/rate limiting.
-- [ ] DDoS considerations.
+- [ ] Redis-backed short-lived state.
+- [ ] broader abuse/DDoS protection.
 - [ ] key/secret management.
-- [ ] database migrations.
 - [ ] privacy-preserving operational logs.
 - [ ] data retention specification.
 - [ ] backup/restore limited to server-owned metadata.
@@ -413,12 +415,12 @@ The first usable MVP is reached when:
 
 ## 17. Immediate next implementation tasks
 
-With identity registration and capability-protected presence now implemented, the next sequence is:
+With identity registration, capability-protected presence, HTTP integration tests, rate limits and optional PostgreSQL identity persistence now implemented, the next sequence is:
 
-1. Add ASP.NET integration tests covering registration, presence, capability authorization, expiry and replay failure modes.
-2. Add server-side rate limiting and global/per-endpoint request-size limits.
-3. Put durable identity persistence behind an interface and add PostgreSQL implementation; keep presence ephemeral.
-4. Define the versioned contact invitation/QR payload and fingerprint UX.
-5. Create the .NET MAUI shell and platform secure identity persistence.
-6. Add `Dyract.Storage` with SQLite repositories for contacts, conversations, messages and outbox.
-7. Add `Dyract.Transport` abstractions and begin the ICE/STUN connectivity spike on physical Android/iPhone devices.
+1. Add structured privacy-aware server logging and PostgreSQL integration CI/migrations.
+2. Define the versioned contact invitation/QR payload and fingerprint UX.
+3. Create the .NET MAUI shell and platform secure identity persistence.
+4. Add `Dyract.Storage` with SQLite repositories for contacts, conversations, messages and outbox.
+5. Add capability revocation/rotation semantics before production contact sharing is finalized.
+6. Add `Dyract.Transport` abstractions and begin the ICE/STUN connectivity spike on physical Android/iPhone devices.
+7. Add Redis-backed ephemeral presence/nonces/signaling only when multi-instance deployment requires it.
