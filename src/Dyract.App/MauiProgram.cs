@@ -28,10 +28,19 @@ public static class MauiProgram
             var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
             return new SqliteIncomingMessageStore(databasePath, keyProvider, localStore);
         });
+        builder.Services.AddSingleton<SqliteOutboxDeliveryQueue>(services =>
+        {
+            var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
+            var localStore = services.GetRequiredService<ILocalStore>();
+            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
+            return new SqliteOutboxDeliveryQueue(databasePath, keyProvider, localStore);
+        });
         builder.Services.AddSingleton<IIncomingMessageStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
         builder.Services.AddSingleton<IOutgoingDeliveryStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
+        builder.Services.AddSingleton<IOutboxDeliveryQueue>(services =>
+            services.GetRequiredService<SqliteOutboxDeliveryQueue>());
         builder.Services.AddSingleton<PeerMessageProcessor>();
         builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
         builder.Services.AddSingleton<IDirectoryService, DirectoryService>();
