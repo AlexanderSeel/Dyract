@@ -43,6 +43,7 @@ The central service is intentionally narrow: it authenticates peers and holds on
                  +-------------+-------------+
                  |                           |
              Alice device                Bob device
+              .NET MAUI                   .NET MAUI
              local storage               local storage
                  |                           |
                  +====== encrypted P2P =====+
@@ -54,9 +55,9 @@ A raw IP address is not sufficient for reliable mobile P2P communication. Cellul
 
 ## Current implementation
 
-The repository currently contains the identity/directory foundation plus the first secure presence-discovery and server-hardening slices:
+The repository currently contains the identity/directory foundation, secure presence discovery, server hardening and the first mobile client slice:
 
-- .NET 10 solution structure
+- .NET 10 shared/server solution
 - cryptographic `dyr_...` Peer ID derived from the identity public key
 - ECDSA P-256 identity generation/signing using `System.Security.Cryptography`
 - challenge/response peer registration
@@ -74,14 +75,18 @@ The repository currently contains the identity/directory foundation plus the fir
 - 64 KiB maximum request-body protection
 - reusable .NET directory client
 - unit and ASP.NET integration tests, including authorized/unauthorized resolve cases
-- GitHub Actions restore/build/test on .NET 10
+- .NET MAUI Android/iOS project and mobile solution
+- first-run mobile identity creation/loading through MAUI `SecureStorage`
+- Peer ID display/copy screen
+- Android cleartext networking disabled and app backup disabled
+- GitHub Actions restore/build/test for the workload-free .NET solution
 
 Still planned:
 
-- .NET MAUI Android/iOS application
-- secure private-key persistence using Android/iOS platform facilities
-- SQLite local contacts/messages/outbox
+- local contact/conversation/message/outbox storage
 - QR/contact invitation UX
+- directory registration from the mobile app
+- non-exportable platform identity-key hardening / Secure Enclave evaluation
 - ICE/STUN connectivity and signaling
 - optional TURN fallback
 - authenticated encrypted peer sessions with forward secrecy
@@ -92,38 +97,65 @@ Still planned:
 - production-grade abuse controls/observability
 - independent security review
 
-See [plan.md](plan.md) for the implementation roadmap and [faq.md](faq.md) for design decisions and limitations.
+See [plan.md](plan.md) for the implementation roadmap and [faq.md](faq.md) for design decisions and limitations. Mobile-specific notes are in [`src/Dyract.App/README.md`](src/Dyract.App/README.md).
 
 ## Solution layout
 
 ```text
-Dyract.slnx
+Dyract.slnx            server/core/test solution; no mobile workload required
+Dyract.Mobile.slnx     MAUI/mobile development solution
+
 src/
+  Dyract.App/        .NET MAUI Android/iOS client
   Dyract.Core/       domain primitives such as PeerId
   Dyract.Crypto/     identity key handling and signature verification
   Dyract.Protocol/   versioned wire contracts and canonical signed payloads
-  Dyract.Client/     directory/capability client used by the future MAUI app
+  Dyract.Client/     directory/capability client used by the MAUI app
   Dyract.Server/     identity, presence and discovery service
 tests/
   Dyract.Tests/      unit + ASP.NET integration tests
 ```
 
-The MAUI project is intentionally deferred until the identity/discovery foundation is stable. This keeps the protocol/server buildable without Android/iOS workloads and lets the difficult networking/security behavior be proven before UI development starts.
-
 ## Requirements
+
+Core/server development:
 
 - .NET 10 SDK
 - PostgreSQL only when durable server identity persistence is enabled
 
-Later mobile development additionally requires the .NET MAUI workloads and normal Android/iOS toolchains.
+Mobile development additionally requires the .NET MAUI Android/iOS workloads and the normal Android/iOS toolchains. Building iOS requires macOS/Xcode.
 
-## Build
+## Build server/core/tests
 
 ```bash
 dotnet restore Dyract.slnx
 dotnet build Dyract.slnx
 dotnet test Dyract.slnx
 ```
+
+## Build mobile
+
+Android:
+
+```bash
+dotnet workload install maui-android
+dotnet build src/Dyract.App/Dyract.App.csproj -f net10.0-android
+```
+
+iOS on macOS:
+
+```bash
+dotnet workload install maui-ios
+dotnet build src/Dyract.App/Dyract.App.csproj -f net10.0-ios
+```
+
+## Mobile identity bootstrap
+
+The current app does not expose messaging yet. It starts by loading or creating the installation identity and displaying the derived Peer ID.
+
+The private PKCS#8 identity material is kept through MAUI `SecureStorage`. On Android this uses Keystore-backed encrypted storage; on iOS it uses Keychain. Dyract does not silently replace an unreadable stored identity because that would silently change the Peer ID.
+
+The current key is still exportable in application memory. A later hardening phase will evaluate non-exportable platform-native key handles while keeping recovery/export an explicit product decision.
 
 ## Run the directory prototype
 
@@ -247,7 +279,7 @@ Before production use the project still requires, at minimum:
 1. a formal threat model,
 2. protocol review,
 3. independent cryptographic/security review,
-4. secure private-key persistence on Android/iOS,
+4. hardened/non-exportable mobile key design where practical,
 5. encrypted local database design,
 6. stronger abuse/DDoS controls and privacy-aware observability,
 7. explicit database migration/backup policy,
