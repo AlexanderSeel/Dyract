@@ -35,6 +35,8 @@ The intended production directory may know:
 - a push-routing token where background wake-up is enabled,
 - operational/security metadata required for abuse prevention.
 
+The current prototype stores identities in memory and short-lived presence separately in an ephemeral in-memory lease store.
+
 It should not hold user-assigned contact names, address books, conversation bodies, attachments or message history.
 
 ## Can the server see users' IP addresses?
@@ -45,7 +47,54 @@ Direct peers may also learn one another's network addresses. Users who require I
 
 ## Can any registered user look up another user's IP?
 
-That is explicitly **not** the intended production behavior. The bootstrap implementation's signed lookup returns identity/public-key information only. Before endpoint lookup is added, Dyract should implement contact-capability authorization so knowing a Peer ID alone is insufficient to retrieve reachability information.
+No. Dyract now separates ordinary identity lookup from endpoint resolution.
+
+`/api/v1/peer/lookup` is an authenticated identity/public-key lookup and returns no connection candidates.
+
+`/api/v1/peer/resolve` can return a target's temporary presence only when the requester provides both:
+
+1. a fresh request signed by the requester's identity, and
+2. a valid contact capability signed by the target identity specifically for that requester.
+
+Knowing a Peer ID alone is therefore insufficient to retrieve endpoint candidates.
+
+## What is a contact capability?
+
+It is a signed authorization object issued by one peer to another. The current capability contains:
+
+```text
+Version
+IssuerPeerId
+GranteePeerId
+CapabilityId
+Issued time
+Expiry time
+Issuer signature
+```
+
+For example, Bob can issue a capability to Alice that authorizes Alice to resolve Bob's temporary reachability data. The directory verifies Bob's signature when Alice presents the capability.
+
+The server does not need to store an `Alice is Bob's contact` row.
+
+## Can a contact capability be copied to someone else?
+
+The current capability is bound to a specific `GranteePeerId`, so copying Alice's capability to Charlie does not help Charlie. A resolve request must also be freshly signed by the grantee's private key.
+
+## Can a capability be revoked?
+
+Not yet before its expiry time. Expiration is implemented, but explicit capability revocation/rotation is still a production requirement. Until that exists, capabilities should use a reasonable lifetime rather than being treated as permanent credentials.
+
+## How long does presence stay on the server?
+
+A published presence lease may last at most two minutes; the client currently defaults to 90 seconds. Publishing again replaces the previous lease. A peer can also explicitly remove its presence with a signed request.
+
+Expired leases are removed from the in-memory presence store as it is accessed or updated. Production scaling can move this data to Redis or another TTL-based ephemeral store without creating permanent IP history.
+
+## What connection candidates are accepted now?
+
+The bootstrap model accepts up to eight `host`, `srflx`, or `relay` candidates using UDP or TCP and IPv4/IPv6 addresses. Ports must be valid and loopback, unspecified, broadcast and multicast addresses are rejected.
+
+This is only the directory representation. The later transport phase should use a mature ICE/STUN implementation rather than inventing a custom NAT traversal algorithm.
 
 ## Are messages stored on the server while the recipient is offline?
 
@@ -71,7 +120,9 @@ That is a planned product option to evaluate. A strict mode would refuse relay t
 
 ## How are requests to the directory authenticated?
 
-The first implementation uses challenge/response registration and signed lookup requests. Signed requests include a protocol-specific canonical payload, a timestamp and a random nonce. The server verifies the signature using the registered public key and rejects stale or replayed nonces.
+Registration uses challenge/response. Security-sensitive operations such as lookup, presence publication/removal and endpoint resolution use protocol-specific signed payloads containing a timestamp and random nonce. The server verifies the signature against the registered public key, rejects stale timestamps and rejects nonce replays.
+
+Endpoint resolution additionally verifies a target-signed contact capability.
 
 ## What cryptography does the first implementation use?
 
@@ -101,7 +152,9 @@ Not in the privacy-first model. Exact invitation/Peer ID exchange avoids creatin
 
 ## How do I know a contact's key has changed?
 
-The client should pin the contact's identity fingerprint. If a previously known Peer ID/public-key relationship unexpectedly changes, the app must show a security warning rather than silently trusting the replacement.
+The client should pin the contact's identity fingerprint. If a previously known identity unexpectedly presents different key material, the app must show a security warning rather than silently trusting the replacement.
+
+Because the current Peer ID itself is derived from the public key, a different public key normally produces a different Peer ID rather than transparently replacing the original identity.
 
 ## What about multiple phones/tablets for one user?
 
@@ -136,4 +189,4 @@ Dyract aims to minimize central data, not make impossible anonymity claims. Netw
 
 ## Is the current code production ready?
 
-No. The repository currently contains the identity/directory bootstrap. It still requires integration tests, persistent storage, rate limits, mobile secure key storage, contact authorization, P2P transport, a reviewed encrypted session protocol and an independent security assessment before production use.
+No. Identity registration and capability-protected short-lived presence are now implemented, but the project still requires API integration tests, persistent identity storage, rate limits, mobile secure key storage, capability revocation, P2P transport, a reviewed encrypted session protocol and an independent security assessment before production use.
