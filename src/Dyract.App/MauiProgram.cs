@@ -1,3 +1,4 @@
+using Dyract.App.Directory;
 using Dyract.App.Security;
 using Dyract.Storage;
 
@@ -18,6 +19,8 @@ public static class MauiProgram
             var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
             return new SqliteLocalStore(databasePath, keyProvider);
         });
+        builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
+        builder.Services.AddSingleton<IDirectoryService, DirectoryService>();
         builder.Services.AddSingleton<MainPage>();
 
         return builder.Build();
