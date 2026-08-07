@@ -43,6 +43,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating corrected FsWebRTC buffer, SDP and lifecycle integration"
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
