@@ -47,7 +47,7 @@ jobs:
         run: dotnet --info
 
       - name: Show validation snapshot
-        run: echo "Validating DataChannel OPEN/CLOSING/CLOSED binding constants"
+        run: echo "Inspecting FsWebRTC DataChannel state binding"
 
       - name: Install Android workload
         run: dotnet workload install maui-android
@@ -61,14 +61,26 @@ jobs:
       - name: Restore Android diagnostic harness
         run: dotnet restore experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj
 
+      - name: Inspect DataChannel binding symbols
+        shell: bash
+        run: |
+          set -o pipefail
+          PACKAGE="$HOME/.nuget/packages/fswebrtc.bindings.maui.android/0.9.3.15"
+          echo "Package files:" | tee transport-build.log
+          find "$PACKAGE" -maxdepth 4 -type f | sort | tee -a transport-build.log
+          DLL=$(find "$PACKAGE" -type f -name '*.dll' | head -n 1)
+          echo "Binding DLL: $DLL" | tee -a transport-build.log
+          strings "$DLL" | grep -E 'DataChannel|State|get_.*State|state' | sort -u | head -n 300 | tee -a transport-build.log || true
+
       - name: Build FsWebRTC binding probe
         shell: bash
         run: |
           set -o pipefail
-          dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee transport-build.log
+          dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee -a transport-build.log
 
       - name: Build Android diagnostic harness
         shell: bash
+        if: success()
         run: |
           set -o pipefail
           dotnet build experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj --configuration Release --no-restore 2>&1 | tee -a transport-build.log
