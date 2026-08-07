@@ -1,4 +1,5 @@
 #if ANDROID
+using System.Security.Cryptography;
 using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
 using Dyract.Crypto.Session;
@@ -39,10 +40,17 @@ public sealed class AuthenticatedExperimentalDataChannel : IDisposable
 
         await rawChannel.SendAsync(handshake.HelloPacket, cancellationToken);
         var responsePacket = await ReceiveOneAsync(rawChannel, cancellationToken);
-        using var keys = handshake.Complete(responsePacket);
-        return new AuthenticatedExperimentalDataChannel(
-            rawChannel,
-            new AuthenticatedSessionCipher(keys));
+        try
+        {
+            using var keys = handshake.Complete(responsePacket);
+            return new AuthenticatedExperimentalDataChannel(
+                rawChannel,
+                new AuthenticatedSessionCipher(keys));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(responsePacket);
+        }
     }
 
     public static async Task<AuthenticatedExperimentalDataChannel> RespondAsync(
@@ -58,18 +66,31 @@ public sealed class AuthenticatedExperimentalDataChannel : IDisposable
         await rawChannel.Opened.WaitAsync(cancellationToken);
 
         var helloPacket = await ReceiveOneAsync(rawChannel, cancellationToken);
-        var response = AuthenticatedSessionResponder.Accept(
-            localIdentity,
-            remotePeerId,
-            remoteIdentityPublicKey.Span,
-            helloPacket,
-            sessionId);
-        using var keys = response.Keys;
-        await rawChannel.SendAsync(response.ResponsePacket, cancellationToken);
-
-        return new AuthenticatedExperimentalDataChannel(
-            rawChannel,
-            new AuthenticatedSessionCipher(keys));
+        try
+        {
+            var response = AuthenticatedSessionResponder.Accept(
+                localIdentity,
+                remotePeerId,
+                remoteIdentityPublicKey.Span,
+                helloPacket,
+                sessionId);
+            using var keys = response.Keys;
+            try
+            {
+                await rawChannel.SendAsync(response.ResponsePacket, cancellationToken);
+                return new AuthenticatedExperimentalDataChannel(
+                    rawChannel,
+                    new AuthenticatedSessionCipher(keys));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(response.ResponsePacket);
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(helloPacket);
+        }
     }
 
     public async ValueTask SendAsync(
@@ -95,8 +116,16 @@ public sealed class AuthenticatedExperimentalDataChannel : IDisposable
         await foreach (var encrypted in _rawChannel.ReceiveAsync(cancellationToken))
         {
             ThrowIfDisposed();
-            var plaintext = _cipher.Decrypt(encrypted);
-            CryptographicOperations.ZeroMemory(encrypted);
+            byte[] plaintext;
+            try
+            {
+                plaintext = _cipher.Decrypt(encrypted);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(encrypted);
+            }
+
             yield return plaintext;
         }
     }
