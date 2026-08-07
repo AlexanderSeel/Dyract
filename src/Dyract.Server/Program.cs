@@ -39,6 +39,7 @@ else
 builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<ReplayNonceStore>();
 builder.Services.AddSingleton<PresenceStore>();
+builder.Services.AddSingleton<SignalStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddRateLimiter(options =>
@@ -116,6 +117,7 @@ api.MapPost("/presence/remove", RemovePresence)
     .RequireRateLimiting("peer-operations");
 api.MapPost("/peer/resolve", ResolvePeer)
     .RequireRateLimiting("peer-operations");
+api.MapPeerSignaling();
 
 app.Run();
 
