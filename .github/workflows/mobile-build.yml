@@ -15,6 +15,10 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
 
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
