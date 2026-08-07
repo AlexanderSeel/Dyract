@@ -2,6 +2,7 @@ using Dyract.Client;
 using Dyract.Core.Identity;
 using Dyract.Protocol;
 using Dyract.Transport.FsWebRtcProbe;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Microsoft.Maui.Storage;
 
@@ -12,7 +13,7 @@ public sealed class MainPage : ContentPage
     private const string DirectoryPreference = "dyract.transportharness.directory.v1";
     private const string StunPreference = "dyract.transportharness.stun.v1";
     private const string RemoteInvitationPreference = "dyract.transportharness.remote-invitation.v1";
-    private const string RemotePairingPreference = "dyract.transportharness.remote-pairing.v1";
+    private const string RemotePairingSecureKey = "dyract.transportharness.remote-pairing.v1";
 
     private readonly HarnessIdentityVault _identityVault;
     private readonly Entry _directoryEntry = new() { Placeholder = "https://directory.example.com" };
@@ -51,7 +52,6 @@ public sealed class MainPage : ContentPage
         _directoryEntry.Text = Preferences.Default.Get(DirectoryPreference, string.Empty);
         _stunEntry.Text = Preferences.Default.Get(StunPreference, string.Empty);
         _remoteInvitationEditor.Text = Preferences.Default.Get(RemoteInvitationPreference, string.Empty);
-        _remotePairingEditor.Text = Preferences.Default.Get(RemotePairingPreference, string.Empty);
 
         var registerButton = new Button { Text = "Configure + Register" };
         registerButton.Clicked += async (_, _) => await ExecuteAsync(RegisterAsync);
@@ -147,6 +147,8 @@ public sealed class MainPage : ContentPage
         _peerIdLabel.Text = $"Peer ID: {identity.PeerId.Value}";
         AppendLog("Secure diagnostic identity ready.");
 
+        _remotePairingEditor.Text = await ReadStoredPairingResponseAsync();
+
         if (!string.IsNullOrWhiteSpace(_remoteInvitationEditor.Text))
         {
             await LoadRemoteInvitationAsync();
@@ -201,8 +203,16 @@ public sealed class MainPage : ContentPage
             throw new InvalidOperationException("Remote invitation belongs to this diagnostic device.");
         }
 
+        var previousPeerId = _remoteInvitation?.PeerId;
         _remoteInvitation = invitation;
         _remoteCapability = null;
+
+        if (previousPeerId is not null && !string.Equals(previousPeerId, invitation.PeerId, StringComparison.Ordinal))
+        {
+            _remotePairingEditor.Text = string.Empty;
+            SecureStorage.Default.Remove(RemotePairingSecureKey);
+        }
+
         _remotePeerLabel.Text = $"Remote peer: {invitation.PeerId}\nFingerprint: {ContactInvitationCodec.GetFingerprint(invitation)}";
         Preferences.Default.Set(RemoteInvitationPreference, value ?? string.Empty);
         SetStatus("Remote identity pinned from invitation.");
@@ -249,7 +259,7 @@ public sealed class MainPage : ContentPage
         }
 
         _remoteCapability = capability;
-        Preferences.Default.Set(RemotePairingPreference, value ?? string.Empty);
+        await SecureStorage.Default.SetAsync(RemotePairingSecureKey, value ?? string.Empty);
         SetStatus("Remote pairing response verified.");
         AppendLog("Capability permits this local identity to signal the pinned remote peer.");
     }
@@ -411,6 +421,18 @@ public sealed class MainPage : ContentPage
         _gateway?.Dispose();
         _gateway = null;
         SetStatus("Connection closed.");
+    }
+
+    private async Task<string> ReadStoredPairingResponseAsync()
+    {
+        try
+        {
+            return await SecureStorage.Default.GetAsync(RemotePairingSecureKey) ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("Stored diagnostic pairing capability could not be read securely.", exception);
+        }
     }
 
     private ContactInvitation RequireRemoteInvitation()
