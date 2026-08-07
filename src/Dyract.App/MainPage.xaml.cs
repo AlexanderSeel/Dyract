@@ -112,53 +112,129 @@ public partial class MainPage : ContentPage
 
         try
         {
-            if (!ContactInvitationCodec.TryDecode(InvitationEditor.Text?.Trim(), out var invitation, out var error))
+            var value = InvitationEditor.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(value))
             {
-                StatusLabel.Text = error ?? "Contact invitation is invalid.";
+                StatusLabel.Text = "Paste a Dyract contact invitation or pairing response first.";
                 return;
             }
 
-            if (invitation is null || string.Equals(invitation.PeerId, _peerId, StringComparison.Ordinal))
+            if (value.StartsWith(ContactPairingCodec.Prefix, StringComparison.OrdinalIgnoreCase))
             {
-                StatusLabel.Text = "You cannot add this installation as its own contact.";
-                return;
+                await ImportPairingResponseAsync(value);
             }
-
-            var fingerprint = ContactInvitationCodec.GetFingerprint(invitation);
-            var defaultName = $"Peer {invitation.PeerId[^6..]}";
-            var displayName = await DisplayPromptAsync(
-                "Save contact",
-                $"Security fingerprint: {fingerprint}\n\nChoose a name stored only on this device.",
-                accept: "Save",
-                cancel: "Cancel",
-                placeholder: "Local contact name",
-                maxLength: 128,
-                initialValue: defaultName);
-
-            if (string.IsNullOrWhiteSpace(displayName))
+            else
             {
-                StatusLabel.Text = "Contact was not added.";
-                return;
+                await ImportContactInvitationAsync(value);
             }
-
-            await _localStore.UpsertContactAsync(new ContactDraft(
-                invitation.PeerId,
-                Convert.FromBase64String(invitation.PublicKey),
-                displayName.Trim()));
-
-            InvitationEditor.Text = string.Empty;
-            await LoadContactsAsync();
-            StatusLabel.Text = $"{displayName.Trim()} saved locally. Endpoint authorization is established in the next pairing step.";
         }
         catch (Exception exception)
         {
-            StatusLabel.Text = $"Contact could not be saved: {exception.Message}";
+            StatusLabel.Text = $"Contact data could not be imported: {exception.Message}";
         }
         finally
         {
             _busy = false;
             AddContactButton.IsEnabled = _initialized;
         }
+    }
+
+    private async Task ImportContactInvitationAsync(string value)
+    {
+        if (!ContactInvitationCodec.TryDecode(value, out var invitation, out var error))
+        {
+            StatusLabel.Text = error ?? "Contact invitation is invalid.";
+            return;
+        }
+
+        if (invitation is null || string.Equals(invitation.PeerId, _peerId, StringComparison.Ordinal))
+        {
+            StatusLabel.Text = "You cannot add this installation as its own contact.";
+            return;
+        }
+
+        var existing = await _localStore.GetContactAsync(invitation.PeerId);
+        var fingerprint = ContactInvitationCodec.GetFingerprint(invitation);
+        var defaultName = existing?.DisplayName ?? $"Peer {invitation.PeerId[^6..]}";
+        var displayName = await DisplayPromptAsync(
+            existing is null ? "Save contact" : "Update contact",
+            $"Security fingerprint: {fingerprint}\n\nChoose a name stored only on this device.",
+            accept: "Save",
+            cancel: "Cancel",
+            placeholder: "Local contact name",
+            maxLength: 128,
+            initialValue: defaultName);
+
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            StatusLabel.Text = "Contact was not changed.";
+            return;
+        }
+
+        await _localStore.UpsertContactAsync(new ContactDraft(
+            invitation.PeerId,
+            Convert.FromBase64String(invitation.PublicKey),
+            displayName.Trim(),
+            existing?.Capability));
+
+        InvitationEditor.Text = string.Empty;
+        await LoadContactsAsync();
+        StatusLabel.Text = existing?.Capability is null
+            ? $"{displayName.Trim()} saved locally. Open the contact and exchange pairing responses next."
+            : $"{displayName.Trim()} updated. Existing endpoint authorization was preserved.";
+    }
+
+    private async Task ImportPairingResponseAsync(string value)
+    {
+        if (string.IsNullOrWhiteSpace(_peerId))
+        {
+            StatusLabel.Text = "Local identity is not ready.";
+            return;
+        }
+
+        if (!ContactPairingCodec.TryDecode(value, out var capability, out var error) || capability is null)
+        {
+            StatusLabel.Text = error ?? "Pairing response is invalid.";
+            return;
+        }
+
+        var contact = await _localStore.GetContactAsync(capability.IssuerPeerId);
+        if (contact is null)
+        {
+            StatusLabel.Text = "Pairing response is from an unknown peer. Import that peer's contact invitation first.";
+            return;
+        }
+
+        if (!ContactCapabilityVerifier.TryVerify(
+                capability,
+                contact.IdentityPublicKey,
+                _peerId,
+                out var verificationError))
+        {
+            StatusLabel.Text = verificationError ?? "Pairing response could not be verified.";
+            return;
+        }
+
+        if (contact.Capability is not null &&
+            ContactPairingCodec.TryDecode(contact.Capability, out var existingCapability, out _) &&
+            existingCapability is not null &&
+            existingCapability.ExpiresUnixSeconds >= capability.ExpiresUnixSeconds)
+        {
+            StatusLabel.Text = "A pairing authorization with the same or later expiry is already stored.";
+            InvitationEditor.Text = string.Empty;
+            return;
+        }
+
+        await _localStore.UpsertContactAsync(new ContactDraft(
+            contact.PeerId,
+            contact.IdentityPublicKey,
+            contact.DisplayName,
+            ContactPairingCodec.Encode(capability)));
+
+        InvitationEditor.Text = string.Empty;
+        await LoadContactsAsync();
+        var expiry = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds).ToLocalTime();
+        StatusLabel.Text = $"{contact.DisplayName} paired. Endpoint discovery is authorized until {expiry:g}.";
     }
 
     private async void OnContactSelected(object? sender, SelectionChangedEventArgs e)
