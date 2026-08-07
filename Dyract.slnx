@@ -3,6 +3,7 @@
   <Project Path="src/Dyract.Crypto/Dyract.Crypto.csproj" />
   <Project Path="src/Dyract.Protocol/Dyract.Protocol.csproj" />
   <Project Path="src/Dyract.Client/Dyract.Client.csproj" />
+  <Project Path="src/Dyract.Storage/Dyract.Storage.csproj" />
   <Project Path="src/Dyract.Server/Dyract.Server.csproj" />
   <Project Path="tests/Dyract.Tests/Dyract.Tests.csproj" />
 </Solution>
