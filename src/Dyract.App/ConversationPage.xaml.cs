@@ -1,3 +1,4 @@
+using Dyract.App.Directory;
 using Dyract.App.Security;
 using Dyract.Client;
 using Dyract.Protocol;
@@ -12,20 +13,24 @@ public partial class ConversationPage : ContentPage
 
     private readonly ILocalStore _localStore;
     private readonly IIdentityVault _identityVault;
+    private readonly IDirectoryService _directoryService;
     private readonly LocalContact _contact;
     private LocalConversation? _conversation;
     private string? _ownPeerId;
     private bool _initialized;
     private bool _sending;
+    private bool _resolving;
 
     public ConversationPage(
         ILocalStore localStore,
         IIdentityVault identityVault,
+        IDirectoryService directoryService,
         LocalContact contact)
     {
         InitializeComponent();
         _localStore = localStore ?? throw new ArgumentNullException(nameof(localStore));
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
+        _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
         _contact = contact ?? throw new ArgumentNullException(nameof(contact));
 
         Title = contact.DisplayName;
@@ -47,12 +52,14 @@ public partial class ConversationPage : ContentPage
             }
 
             await LoadMessagesAsync();
+            UpdateReachabilityButton();
         }
         catch (Exception exception)
         {
             ConversationStatusLabel.Text = $"Conversation unavailable: {exception.Message}";
             SendButton.IsEnabled = false;
             CopyPairingResponseButton.IsEnabled = false;
+            ResolveContactButton.IsEnabled = false;
         }
     }
 
@@ -65,7 +72,8 @@ public partial class ConversationPage : ContentPage
         _initialized = true;
         SendButton.IsEnabled = true;
         CopyPairingResponseButton.IsEnabled = true;
-        ConversationStatusLabel.Text = "Local conversation ready. Network delivery is not connected yet.";
+        UpdateReachabilityButton();
+        ConversationStatusLabel.Text = "Local conversation ready. P2P message transport is not connected yet.";
     }
 
     private async Task LoadMessagesAsync()
@@ -116,6 +124,41 @@ public partial class ConversationPage : ContentPage
         }
     }
 
+    private async void OnResolveContactClicked(object? sender, EventArgs e)
+    {
+        if (_resolving || !_initialized)
+        {
+            return;
+        }
+
+        _resolving = true;
+        ResolveContactButton.IsEnabled = false;
+        try
+        {
+            var result = await _directoryService.ResolveAsync(_contact);
+            if (!result.IsReachable)
+            {
+                ConversationStatusLabel.Text =
+                    $"{_contact.DisplayName} is registered but has no current reachability lease.";
+                return;
+            }
+
+            var expiry = result.LeaseExpiresAt?.ToLocalTime();
+            ConversationStatusLabel.Text = expiry is null
+                ? $"{_contact.DisplayName} is reachable with {result.Candidates.Count} connection candidate(s)."
+                : $"{_contact.DisplayName} is reachable with {result.Candidates.Count} candidate(s) until {expiry:g}.";
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Reachability check failed: {exception.Message}";
+        }
+        finally
+        {
+            _resolving = false;
+            UpdateReachabilityButton();
+        }
+    }
+
     private async void OnSendClicked(object? sender, EventArgs e)
         => await QueueMessageAsync();
 
@@ -159,6 +202,15 @@ public partial class ConversationPage : ContentPage
             _sending = false;
             SendButton.IsEnabled = _initialized;
         }
+    }
+
+    private void UpdateReachabilityButton()
+    {
+        ResolveContactButton.IsEnabled =
+            _initialized &&
+            !_resolving &&
+            _contact.Capability is not null &&
+            _directoryService.ConfiguredBaseUri is not null;
     }
 
     private static string GetPairingStateText(LocalContact contact)
