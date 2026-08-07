@@ -51,3 +51,5 @@ jobs:
 
       - name: Build Android app
         run: dotnet build src/Dyract.App/Dyract.App.csproj -f net10.0-android --configuration Release
+
+# validation-snapshot: final-selected-path-2026-08-07
