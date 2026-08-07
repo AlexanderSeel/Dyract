@@ -45,4 +45,31 @@ public sealed class IceCandidatePrivacySummaryTests
         Assert.Equal(IceTransportCategory.Unknown, summary.Transport);
         Assert.Equal("unknown/unknown", summary.DisplayValue);
     }
+
+    [Theory]
+    [InlineData("host", "udp", IceCandidateCategory.Host, IceTransportCategory.Udp)]
+    [InlineData("srflx", "TCP", IceCandidateCategory.ServerReflexive, IceTransportCategory.Tcp)]
+    [InlineData("future-candidate", "quic", IceCandidateCategory.Unknown, IceTransportCategory.Unknown)]
+    public void TryCreate_ClassifiesStatsTokensWithoutEchoingThem(
+        string candidateType,
+        string transport,
+        IceCandidateCategory expectedCategory,
+        IceTransportCategory expectedTransport)
+    {
+        Assert.True(IceCandidatePrivacySummary.TryCreate(candidateType, transport, out var summary));
+        Assert.Equal(expectedCategory, summary.Category);
+        Assert.Equal(expectedTransport, summary.Transport);
+        Assert.DoesNotContain(candidateType, summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(transport, summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SelectedPath_DisplayContainsOnlySafeSummaries()
+    {
+        var selected = new SelectedIcePathPrivacySummary(
+            new IceCandidatePrivacySummary(IceCandidateCategory.Host, IceTransportCategory.Udp),
+            new IceCandidatePrivacySummary(IceCandidateCategory.ServerReflexive, IceTransportCategory.Udp));
+
+        Assert.Equal("host/udp -> srflx/udp", selected.DisplayValue);
+    }
 }
