@@ -6,7 +6,7 @@
     Title="Dyract">
 
     <ScrollView>
-        <VerticalStackLayout Padding="28" Spacing="18">
+        <VerticalStackLayout Padding="24" Spacing="18">
             <Label
                 FontAttributes="Bold"
                 FontSize="34"
@@ -16,41 +16,97 @@
                 FontSize="18"
                 Text="Direct by design." />
 
-            <Label
-                Margin="0,12,0,0"
-                Text="This installation owns a cryptographic identity. Your private identity key is kept in the device secure storage and is never registered with the directory server." />
-
-            <Border Padding="18" StrokeThickness="1">
+            <Border Padding="16" StrokeThickness="1">
                 <Border.StrokeShape>
                     <RoundRectangle CornerRadius="14" />
                 </Border.StrokeShape>
 
-                <VerticalStackLayout Spacing="12">
-                    <Label
-                        FontAttributes="Bold"
-                        Text="Your Peer ID" />
-
+                <VerticalStackLayout Spacing="10">
+                    <Label FontAttributes="Bold" Text="Your identity" />
                     <Label
                         x:Name="PeerIdLabel"
                         FontFamily="monospace"
                         LineBreakMode="CharacterWrap"
                         Text="Creating secure identity…" />
+                    <Label
+                        x:Name="FingerprintLabel"
+                        FontFamily="monospace"
+                        FontSize="12"
+                        Text="Fingerprint: …" />
+                    <HorizontalStackLayout Spacing="10">
+                        <Button
+                            x:Name="CopyPeerIdButton"
+                            Clicked="OnCopyPeerIdClicked"
+                            IsEnabled="False"
+                            Text="Copy Peer ID" />
+                        <Button
+                            x:Name="CopyInviteButton"
+                            Clicked="OnCopyInviteClicked"
+                            IsEnabled="False"
+                            Text="Copy contact invite" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
 
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+
+                <VerticalStackLayout Spacing="10">
+                    <Label FontAttributes="Bold" Text="Add contact" />
+                    <Label
+                        FontSize="12"
+                        Text="Paste a Dyract contact invitation. The public key is checked against the Peer ID before it can be saved." />
+                    <Editor
+                        x:Name="InvitationEditor"
+                        AutoSize="TextChanges"
+                        HeightRequest="90"
+                        Placeholder="dyract://contact/v1/…" />
                     <Button
-                        x:Name="CopyPeerIdButton"
-                        Clicked="OnCopyPeerIdClicked"
+                        x:Name="AddContactButton"
+                        Clicked="OnAddContactClicked"
                         IsEnabled="False"
-                        Text="Copy Peer ID" />
+                        Text="Verify and add contact" />
                 </VerticalStackLayout>
             </Border>
 
             <Label
+                FontAttributes="Bold"
+                FontSize="20"
+                Text="Contacts" />
+
+            <Label
+                x:Name="NoContactsLabel"
+                Text="No contacts yet. Exchange a contact invite with another Dyract installation." />
+
+            <CollectionView
+                x:Name="ContactsView"
+                SelectionChanged="OnContactSelected"
+                SelectionMode="Single">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,4" Padding="14" StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="12" />
+                            </Border.StrokeShape>
+                            <VerticalStackLayout Spacing="4">
+                                <Label FontAttributes="Bold" FontSize="17" Text="{Binding DisplayName}" />
+                                <Label FontFamily="monospace" FontSize="11" Text="{Binding ShortPeerId}" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <Label
                 x:Name="StatusLabel"
+                FontSize="12"
                 Text="Initializing…" />
 
             <Label
-                FontSize="12"
-                Text="Early development build — messaging and network transport are not enabled yet." />
+                FontSize="11"
+                Text="Early development build — messages are stored and queued locally, but P2P delivery is not connected yet." />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
