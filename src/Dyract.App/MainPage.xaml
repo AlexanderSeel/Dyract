@@ -54,20 +54,20 @@
                 </Border.StrokeShape>
 
                 <VerticalStackLayout Spacing="10">
-                    <Label FontAttributes="Bold" Text="Add contact" />
+                    <Label FontAttributes="Bold" Text="Add or pair contact" />
                     <Label
                         FontSize="12"
-                        Text="Paste a Dyract contact invitation. The public key is checked against the Peer ID before it can be saved." />
+                        Text="Paste a dyract://contact invitation to pin a peer identity, or a dyract://pair response from a saved contact to authorize endpoint discovery." />
                     <Editor
                         x:Name="InvitationEditor"
                         AutoSize="TextChanges"
                         HeightRequest="90"
-                        Placeholder="dyract://contact/v1/…" />
+                        Placeholder="dyract://contact/v1/… or dyract://pair/v1/…" />
                     <Button
                         x:Name="AddContactButton"
                         Clicked="OnAddContactClicked"
                         IsEnabled="False"
-                        Text="Verify and add contact" />
+                        Text="Verify and import" />
                 </VerticalStackLayout>
             </Border>
 
@@ -93,6 +93,7 @@
                             <VerticalStackLayout Spacing="4">
                                 <Label FontAttributes="Bold" FontSize="17" Text="{Binding DisplayName}" />
                                 <Label FontFamily="monospace" FontSize="11" Text="{Binding ShortPeerId}" />
+                                <Label FontSize="10" Text="{Binding Capability, TargetNullValue='Identity pinned — pairing response still needed', FallbackValue='Identity pinned'}" />
                             </VerticalStackLayout>
                         </Border>
                     </DataTemplate>
