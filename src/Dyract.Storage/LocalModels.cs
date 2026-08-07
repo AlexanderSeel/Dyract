@@ -59,6 +59,10 @@ public sealed record LocalMessage(
     DateTimeOffset? ReadAt,
     string Text);
 
+public sealed record IncomingMessageStoreResult(
+    LocalMessage Message,
+    bool IsNew);
+
 public sealed record PendingOutboxItem(
     string MessageId,
     string ConversationId,
