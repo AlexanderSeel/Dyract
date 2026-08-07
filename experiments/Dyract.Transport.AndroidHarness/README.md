@@ -2,25 +2,30 @@
 
 This is a **physical-device diagnostic app**, not the shipping Dyract messenger.
 
-Its purpose is to prove direct WebRTC DataChannel connectivity through Dyract's existing authenticated, capability-protected signaling layer **and** to prove the Dyract application session can bind that channel to the locally pinned peer identity before FsWebRTC is considered for production use.
+Its purpose is to prove direct WebRTC DataChannel connectivity through Dyract's authenticated, capability-protected signaling layer and to prove that the application session binds the channel to the locally pinned peer identity before FsWebRTC is considered for production use.
 
-## What it uses
+## What it proves
+
+The harness currently exercises:
 
 - its own Android SecureStorage identity;
 - the normal Dyract identity registration API;
-- normal `dyract://contact/v1/...` identity invitations;
-- normal signed `dyract://pair/v1/...` pairing responses;
-- the normal Dyract short-lived signaling endpoints;
-- the experimental FsWebRTC Android peer session;
+- `dyract://contact/v1/...` identity invitations;
+- signed `dyract://pair/v1/...` reachability capabilities;
+- short-lived Dyract signaling endpoints;
+- experimental FsWebRTC Android ICE/WebRTC transport;
 - DataChannel OPEN-state gating;
-- a signed ephemeral Dyract identity handshake over the opened DataChannel;
+- a signed ephemeral Dyract identity handshake;
 - directional HKDF-derived session keys;
-- AES-256-GCM protected `DYRT` diagnostic ping/pong frames;
-- privacy-safe ICE candidate summaries containing only candidate class + transport.
+- AES-256-GCM protected `DYSE` application-session frames;
+- encrypted `DYRT` ping/pong probes;
+- encrypted versioned `DYRM` text/delivery-ACK probes;
+- privacy-safe observed ICE candidate summaries;
+- privacy-safe selected ICE path reporting through WebRTC `RTCStats`.
 
-It does **not** use the shipping app database and it does not send chat messages.
+The harness does **not** use the shipping app database. Its `DYRM` message probe is intentionally not persisted as chat history. Durable incoming-message deduplication, outbox retry and ACK state transitions are tested separately by the core/SQLite reliability tests.
 
-The application-session protocol is documented separately in `docs/session-security.md`. It is implemented and adversarially tested, but is still experimental protocol code and has not yet received an independent cryptographic review.
+The application-session protocol is documented in `docs/session-security.md`. Reliable messaging semantics are documented in `docs/reliable-messaging.md`. Both are still prototype code and require independent security/cryptographic review before production use.
 
 ## Build
 
@@ -29,13 +34,13 @@ dotnet workload install maui-android
 dotnet build experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj --configuration Release
 ```
 
-The project targets Android only and has application ID:
+Application ID:
 
 ```text
 app.dyract.transportharness
 ```
 
-Successful Transport Spike CI runs also publish a 14-day artifact named:
+Successful Transport Spike CI runs publish a 14-day artifact named:
 
 ```text
 dyract-android-transport-harness-apk
@@ -64,13 +69,13 @@ On B:
 
 1. paste it into **Remote identity**;
 2. tap **Load remote invitation**;
-3. verify the shown fingerprint out-of-band when doing a security-sensitive test.
+3. verify the shown fingerprint out-of-band for security-sensitive tests.
 
 Repeat B -> A.
 
-The public key from this invitation is later used by the application-session handshake. A successful WebRTC connection to a different identity must therefore not be accepted as a valid Dyract session.
+The invitation public key is pinned and later used by the application-session handshake. A successful WebRTC connection to a different identity must therefore not be accepted as a valid Dyract session.
 
-### 3. Exchange reachability/signaling capabilities
+### 3. Exchange signaling capabilities
 
 After each side has loaded the other's identity invitation:
 
@@ -86,13 +91,13 @@ On B:
 
 Repeat B -> A.
 
-A pairing response is grantee-bound. Do not reuse a response generated for another Peer ID. The imported capability is stored in platform SecureStorage by the harness.
+A pairing response is bound to one exact grantee Peer ID. Do not reuse a response generated for another identity. Imported capability material is stored in platform SecureStorage by the harness.
 
-### 4. STUN setting and privacy-safe ICE diagnostics
+## ICE / STUN and privacy-safe diagnostics
 
 For same-LAN host-candidate testing, leave the STUN field empty.
 
-For tests that require server-reflexive candidates, enter one or more test STUN URIs separated by commas, for example:
+For tests that require server-reflexive candidates, enter one or more STUN URIs separated by commas, for example:
 
 ```text
 stun:your-stun-host.example:3478
@@ -100,18 +105,34 @@ stun:your-stun-host.example:3478
 
 The harness intentionally accepts only `stun:` URIs. TURN is excluded from this DirectOnly experiment so relay connectivity cannot hide a failed direct path.
 
-The UI exposes only de-duplicated candidate categories such as:
+The UI separates candidates merely **observed during negotiation** from the pair WebRTC actually selected. Example:
 
 ```text
 Local candidates: host/udp, srflx/udp
 Remote candidates: host/udp, srflx/udp
+Selected path: host/udp -> srflx/udp
 ```
 
-The classifier intentionally discards the raw candidate address, port, foundation, priority, related address/port and other SDP material. `unknown/unknown` is used for an unrecognized future candidate/transport rather than echoing an unfamiliar token back to the UI.
+Observed candidate parsing discards address, port, foundation, priority, related address/port and other SDP material. Unknown future tokens become `unknown/unknown` instead of being echoed.
 
-These summaries describe candidate categories **observed during negotiation**. They do not yet prove which candidate pair WebRTC finally selected; selected-pair reporting would require a separately validated stats binding and must remain equally privacy-safe.
+Selected-path reporting uses the WebRTC stats chain:
 
-### 5. Establish WebRTC and the authenticated Dyract session
+```text
+transport.selectedCandidatePairId
+        -> candidate-pair
+        -> localCandidateId / remoteCandidateId
+        -> candidateType / protocol
+```
+
+Only the final category/transport pair leaves the native binding layer. Raw stats IDs, IP addresses, ports and candidate objects are not exposed to the harness UI or ordinary log. If that exact chain cannot be resolved, the UI reports:
+
+```text
+Selected path: unavailable
+```
+
+The stats callback is retained until WebRTC actually delivers it. A UI timeout cancels only the caller's wait and does not prematurely dispose the native callback object.
+
+## Establish WebRTC and the authenticated Dyract session
 
 On B first:
 
@@ -123,7 +144,7 @@ On A:
 1. tap **Start initiator**;
 2. observe the connection stages on both devices.
 
-The expected progression is conceptually:
+Expected progression:
 
 ```text
 WebRTC signaling / ICE
@@ -141,11 +162,13 @@ HKDF directional session keys
 Authenticated session ready
 ```
 
-The initiator generates the 128-bit session ID automatically. The responder discovers the first valid short-lived offer from the pinned remote Peer ID and uses that same session ID. The application handshake also binds both Peer IDs and the session ID into the signed transcript.
+The initiator generates the session ID automatically. The responder accepts only a valid short-lived offer from the pinned remote Peer ID. The application handshake binds both Peer IDs and the session ID into the signed transcript.
 
-Do not treat a UI state equivalent to **WebRTC connected** as final success. The useful security milestone is **Authenticated session ready**.
+Do not treat **WebRTC connected** as final success. The useful security milestone is **Authenticated session ready**.
 
-### 6. Verify encrypted authenticated frames
+## Protocol probes
+
+### Ping
 
 After A reports that the authenticated session is ready, tap **Ping**.
 
@@ -155,30 +178,31 @@ Expected result:
 Authenticated pong received in <n> ms
 ```
 
-The responder runs an automatic encrypted echo loop. Before the DataChannel sees the diagnostic payload, the `DYRT` frame is wrapped inside a `DYSE` authenticated-session frame using AES-256-GCM and the directional key derived from the signed ephemeral handshake.
+The inner `DYRT` frame is encrypted inside a `DYSE` application-session frame. Record the RTT, not packet contents.
 
-The inner fixed-size diagnostic payload contains:
+### Message + ACK
 
-```text
-magic      DYRT
-version    1
-type       ping / pong
-token      16 random bytes
-timestamp  Stopwatch timestamp
-```
+On the initiator, tap **Message + ACK**.
 
-The encrypted session wrapper adds:
+Expected result:
 
 ```text
-magic              DYSE
-version            1
-sequence           uint64
-ciphertext length  uint32
-ciphertext         encrypted DYRT payload
-GCM tag            16 bytes
+Authenticated DYRM delivery ACK received in <n> ms
 ```
 
-No chat payload is involved.
+This sends one real versioned `DYRM` text frame through the authenticated encrypted DataChannel. The responder validates peer scope and returns the corresponding delivery ACK. The probe text is not persisted as chat history.
+
+This validates the application wire path only. The full durable reliability loop is tested separately:
+
+```text
+queue locally
+  -> send original MessageId/CreatedAt
+  -> ACK may be lost
+  -> retry same message
+  -> receiver deduplicates
+  -> ACK again
+  -> sender removes outbox only after valid peer ACK
+```
 
 ## Runtime matrix
 
@@ -194,32 +218,37 @@ Run at least:
 
 After a successful session, also test Wi-Fi -> cellular and cellular -> Wi-Fi transitions.
 
-For each network case distinguish these outcomes rather than recording only pass/fail:
+For every case distinguish these outcomes rather than recording only pass/fail:
 
 ```text
 signaling failed
 ICE / PeerConnection failed
 PeerConnection connected but DataChannel did not open
 DataChannel opened but identity handshake failed
-authenticated session established but encrypted ping failed
-authenticated encrypted ping succeeded
+authenticated session established but DYRT ping failed
+authenticated DYRT ping succeeded
+DYRM message sent but delivery ACK failed
+authenticated DYRM delivery ACK succeeded
 ```
 
 ## Record
 
 Record only:
 
-- test network category;
-- which connection stage was reached;
-- observed local candidate categories (`host`, `srflx`, `prflx`, `relay`, plus `udp`/`tcp`);
+- network category for A and B;
+- highest connection stage reached;
+- observed local candidate categories;
 - observed remote candidate categories;
+- selected ICE path category, e.g. `host/udp -> srflx/udp`;
+- whether selected path was unavailable;
 - offer-to-WebRTC-connected time;
 - authenticated-session establishment result;
-- authenticated ping RTT;
-- whether a reconnect/restart was necessary;
+- authenticated `DYRT` ping RTT;
+- authenticated `DYRM` delivery-ACK RTT;
+- reconnect/restart requirement;
 - clean close/retry behavior.
 
-Do not put raw Peer IDs, SDP, IP addresses, candidate strings, keys, invitations, capabilities, handshake packets, decrypted frames, or message content into ordinary logs/screenshots shared outside the test group.
+Do **not** put raw Peer IDs, SDP, IP addresses, ports, candidate strings, stats IDs, keys, invitations, capabilities, handshake packets, decrypted frames, MessageIds or message content into ordinary logs/screenshots shared outside the test group.
 
 ## Current limitations
 
@@ -231,9 +260,8 @@ Do not put raw Peer IDs, SDP, IP addresses, candidate strings, keys, invitations
 - authenticated session protocol is experimental and not independently reviewed yet;
 - no Double Ratchet / post-compromise ratcheting yet;
 - no asynchronous prekeys/offline E2E session bootstrap;
-- no transactional chat outbox delivery over this transport yet;
-- no selected ICE pair stats reporting yet;
+- shipping app outbox is not yet scheduled over this experimental transport;
 - no iOS runtime adapter yet;
 - current FsWebRTC Android native library has the documented Android 16 KB page-size `XA0141` production-promotion blocker.
 
-A successful authenticated ping proves direct reachability, DataChannel transport, pinned identity authentication, ephemeral session-key agreement, and authenticated encryption for the diagnostic frame. It does **not** prove the complete messenger protocol, offline delivery, ratcheting, background wake-up, or production readiness.
+A successful `DYRT` + `DYRM` physical test proves direct reachability, DataChannel transport, pinned identity authentication, ephemeral session-key agreement, authenticated encryption, the application message/ACK wire path and the privacy-safe selected ICE path diagnostic. It does **not** prove background delivery, TURN behavior, iOS interoperability, post-compromise ratcheting or production readiness.
