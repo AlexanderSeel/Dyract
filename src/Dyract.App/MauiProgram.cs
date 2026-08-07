@@ -21,6 +21,7 @@ public static class MauiProgram
         });
         builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
         builder.Services.AddSingleton<IDirectoryService, DirectoryService>();
+        builder.Services.AddSingleton<IDirectorySignalingService, DirectorySignalingService>();
         builder.Services.AddSingleton<MainPage>();
 
         return builder.Build();
