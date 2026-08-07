@@ -86,6 +86,26 @@ public sealed class PeerNegotiationSignalCodecTests
     }
 
     [Fact]
+    public void InvalidSignalId_IsRejectedBeforeAcknowledgementUse()
+    {
+        using var sender = PeerIdentity.Generate();
+        var envelope = new PeerSignalEnvelope(
+            "invalid",
+            sender.PeerId.Value,
+            SessionId,
+            PeerSignalTypes.Close,
+            PeerNegotiationSignalCodec.EncodeControl(),
+            Now.ToUnixTimeSeconds(),
+            Now.AddSeconds(45).ToUnixTimeSeconds());
+
+        var decoded = PeerNegotiationSignalCodec.TryDecode(envelope, Now, out var signal, out var error);
+
+        Assert.False(decoded);
+        Assert.Null(signal);
+        Assert.Equal("Signal ID is invalid.", error);
+    }
+
+    [Fact]
     public void InvalidSenderPeerId_IsRejected()
     {
         var envelope = Envelope(
@@ -98,6 +118,26 @@ public sealed class PeerNegotiationSignalCodecTests
         Assert.False(decoded);
         Assert.Null(signal);
         Assert.Equal("Signal sender PeerId is invalid.", error);
+    }
+
+    [Fact]
+    public void LifetimeLongerThanServerBoundary_IsRejected()
+    {
+        using var sender = PeerIdentity.Generate();
+        var envelope = new PeerSignalEnvelope(
+            SignalId,
+            sender.PeerId.Value,
+            SessionId,
+            PeerSignalTypes.Close,
+            PeerNegotiationSignalCodec.EncodeControl(),
+            Now.ToUnixTimeSeconds(),
+            Now.AddSeconds(PeerNegotiationSignalCodec.MaximumSignalLifetimeSeconds + 1).ToUnixTimeSeconds());
+
+        var decoded = PeerNegotiationSignalCodec.TryDecode(envelope, Now, out var signal, out var error);
+
+        Assert.False(decoded);
+        Assert.Null(signal);
+        Assert.Equal("Signal timestamp ordering or lifetime is invalid.", error);
     }
 
     [Fact]
