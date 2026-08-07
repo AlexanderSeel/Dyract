@@ -49,6 +49,9 @@ jobs:
       - name: Show installed workloads
         run: dotnet workload list
 
+      - name: Show NuGet cache locations
+        run: dotnet nuget locals all --list
+
       - name: Restore FsWebRTC binding probe
         run: dotnet restore experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj
 
