@@ -46,6 +46,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating transport-owned application frame sender dependency in MAUI"
+
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
 
