@@ -4,11 +4,26 @@ using Dyract.Core.Identity;
 
 namespace Dyract.Server.Services;
 
-public sealed class IdentityStore
+public interface IIdentityStore
+{
+    bool TryRegister(
+        PeerId peerId,
+        byte[] publicKey,
+        DateTimeOffset registeredAt,
+        out RegisteredPeer peer);
+
+    bool TryGet(PeerId peerId, out RegisteredPeer peer);
+}
+
+public sealed class InMemoryIdentityStore : IIdentityStore
 {
     private readonly ConcurrentDictionary<string, RegisteredPeer> _peers = new(StringComparer.Ordinal);
 
-    public bool TryRegister(PeerId peerId, byte[] publicKey, DateTimeOffset registeredAt, out RegisteredPeer peer)
+    public bool TryRegister(
+        PeerId peerId,
+        byte[] publicKey,
+        DateTimeOffset registeredAt,
+        out RegisteredPeer peer)
     {
         ArgumentNullException.ThrowIfNull(publicKey);
 
