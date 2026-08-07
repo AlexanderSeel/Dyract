@@ -11,5 +11,5 @@ public partial class App : Application
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
-        => new(_mainPage);
+        => new(new NavigationPage(_mainPage));
 }
