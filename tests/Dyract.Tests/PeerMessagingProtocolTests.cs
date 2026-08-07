@@ -133,6 +133,31 @@ public sealed class PeerMessagingProtocolTests
     }
 
     [Fact]
+    public void Decode_RejectsUppercaseMessageIdWireRepresentation()
+    {
+        using var aliceIdentity = PeerIdentity.Generate();
+        using var bobIdentity = PeerIdentity.Generate();
+        var encoded = PeerMessagingProtocol.Encode(new PeerTextMessageFrame(
+            MessageId,
+            aliceIdentity.PeerId,
+            bobIdentity.PeerId,
+            DateTimeOffset.UtcNow,
+            "hello"));
+
+        const int messageIdOffset = 6;
+        for (var index = messageIdOffset; index < messageIdOffset + 32; index++)
+        {
+            if (encoded[index] is >= (byte)'a' and <= (byte)'f')
+            {
+                encoded[index] = (byte)(encoded[index] - 32);
+            }
+        }
+
+        Assert.False(PeerMessagingProtocol.TryDecode(encoded, out _, out var error));
+        Assert.Contains("noncanonical", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Encode_RejectsNonCanonicalMessageIdSelfRecipientAndDefaultPeer()
     {
         using var aliceIdentity = PeerIdentity.Generate();
