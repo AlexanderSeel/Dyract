@@ -62,8 +62,7 @@ public sealed class AuthenticatedSessionInitiator : IDisposable
                 localIdentity.PeerId,
                 remotePeerId,
                 nonce,
-                publicKey,
-                helloHash: null);
+                publicKey);
             var signature = localIdentity.Sign(unsigned);
             var packet = SessionHandshakeWire.AppendSignature(unsigned, signature);
 
@@ -339,7 +338,7 @@ internal static class SessionHandshakeWire
         PeerId receiverPeerId,
         ReadOnlySpan<byte> nonce,
         ReadOnlySpan<byte> ephemeralPublicKey,
-        ReadOnlySpan<byte>? helloHash)
+        ReadOnlySpan<byte> helloHash = default)
     {
         ValidateSessionId(sessionId);
         if (type is not (HelloType or ResponseType))
@@ -357,12 +356,12 @@ internal static class SessionHandshakeWire
             throw new ArgumentOutOfRangeException(nameof(ephemeralPublicKey));
         }
 
-        if (type == ResponseType && (!helloHash.HasValue || helloHash.Value.Length != HelloHashLength))
+        if (type == ResponseType && helloHash.Length != HelloHashLength)
         {
             throw new ArgumentException("Session response must contain a 32-byte hello hash.", nameof(helloHash));
         }
 
-        if (type == HelloType && helloHash.HasValue)
+        if (type == HelloType && !helloHash.IsEmpty)
         {
             throw new ArgumentException("Session hello must not contain a prior transcript hash.", nameof(helloHash));
         }
@@ -383,9 +382,9 @@ internal static class SessionHandshakeWire
         offset += 2;
         Write(ephemeralPublicKey, output, ref offset);
 
-        if (helloHash.HasValue)
+        if (!helloHash.IsEmpty)
         {
-            Write(helloHash.Value, output, ref offset);
+            Write(helloHash, output, ref offset);
         }
 
         return output;
