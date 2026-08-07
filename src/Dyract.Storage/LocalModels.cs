@@ -35,6 +35,9 @@ public sealed record LocalContact(
     DateTimeOffset UpdatedAt)
 {
     public string ShortPeerId => PeerId.Length <= 18 ? PeerId : $"{PeerId[..10]}…{PeerId[^6..]}";
+    public string PairingStatus => Capability is null
+        ? "Identity pinned — pairing response still needed"
+        : "Endpoint discovery authorized";
 }
 
 public sealed record LocalConversation(
