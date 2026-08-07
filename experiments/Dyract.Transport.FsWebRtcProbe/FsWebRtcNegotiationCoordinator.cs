@@ -56,6 +56,13 @@ public sealed class FsWebRtcNegotiationCoordinator : IAsyncDisposable
         Emit(PeerSignalTypes.Offer, PeerNegotiationSignalCodec.EncodeSessionDescription(offer.Sdp));
     }
 
+    public Task<SelectedIcePathPrivacySummary?> GetSelectedIcePathSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        return _session.GetSelectedIcePathSummaryAsync(cancellationToken);
+    }
+
     public async Task HandleAsync(
         PeerNegotiationSignal signal,
         CancellationToken cancellationToken = default)
