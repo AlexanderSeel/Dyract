@@ -4,5 +4,6 @@
   <Project Path="src/Dyract.Protocol/Dyract.Protocol.csproj" />
   <Project Path="src/Dyract.Client/Dyract.Client.csproj" />
   <Project Path="src/Dyract.Storage/Dyract.Storage.csproj" />
+  <Project Path="src/Dyract.Transport/Dyract.Transport.csproj" />
   <Project Path="src/Dyract.App/Dyract.App.csproj" />
 </Solution>
