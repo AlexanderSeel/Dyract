@@ -14,14 +14,21 @@
                 <Label x:Name="ContactPeerIdLabel" FontFamily="monospace" FontSize="10" LineBreakMode="CharacterWrap" />
                 <Label x:Name="ContactFingerprintLabel" FontFamily="monospace" FontSize="10" />
                 <Label x:Name="PairingStateLabel" FontSize="11" />
-                <Button
-                    x:Name="CopyPairingResponseButton"
-                    Clicked="OnCopyPairingResponseClicked"
-                    IsEnabled="False"
-                    Text="Copy pairing response for this contact" />
+                <HorizontalStackLayout Spacing="8">
+                    <Button
+                        x:Name="CopyPairingResponseButton"
+                        Clicked="OnCopyPairingResponseClicked"
+                        IsEnabled="False"
+                        Text="Copy pairing response" />
+                    <Button
+                        x:Name="ResolveContactButton"
+                        Clicked="OnResolveContactClicked"
+                        IsEnabled="False"
+                        Text="Check reachability" />
+                </HorizontalStackLayout>
                 <Label
                     FontSize="10"
-                    Text="This response grants this contact temporary permission to resolve your reachability. They must import it on their own device." />
+                    Text="Pairing responses grant temporary reachability permission. Check reachability uses only the configured directory and does not send a chat message." />
             </VerticalStackLayout>
         </Border>
 
