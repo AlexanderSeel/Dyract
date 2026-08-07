@@ -49,6 +49,9 @@ jobs:
       - name: Show installed workloads
         run: dotnet workload list
 
+      - name: Show transport probe target framework
+        run: dotnet msbuild experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj -getProperty:TargetFramework
+
       - name: Restore FsWebRTC binding probe
         run: dotnet restore experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj
 
