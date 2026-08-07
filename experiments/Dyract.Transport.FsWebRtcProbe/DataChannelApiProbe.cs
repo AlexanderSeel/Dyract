@@ -34,8 +34,8 @@ public static class DataChannelApiProbe
     public static byte[] ReadBuffer(DataChannel.Buffer buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
-        var data = buffer.Data;
-        var bytes = new byte[data.Remaining];
+        var data = buffer.Data ?? throw new InvalidOperationException("DataChannel buffer did not contain a native ByteBuffer.");
+        var bytes = new byte[data.Remaining()];
         data.Get(bytes);
         return bytes;
     }
@@ -55,7 +55,7 @@ public static class DataChannelApiProbe
     public static string ReadDescription(SessionDescription description)
     {
         ArgumentNullException.ThrowIfNull(description);
-        return $"{description.Type}|{description.Description}";
+        return description.Description ?? string.Empty;
     }
 }
 #endif
