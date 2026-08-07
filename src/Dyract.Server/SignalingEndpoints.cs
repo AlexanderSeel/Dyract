@@ -75,7 +75,7 @@ public static class SignalingEndpoints
             return BadRequest("invalid_signal_payload", $"Signal payload must not exceed {MaximumPayloadBytes} UTF-8 bytes.");
         }
 
-        if (request.SignalType is PeerSignalTypes.Offer or PeerSignalTypes.Answer or PeerSignalTypes.Candidate &&
+        if ((request.SignalType is PeerSignalTypes.Offer or PeerSignalTypes.Answer or PeerSignalTypes.Candidate) &&
             string.IsNullOrWhiteSpace(request.Payload))
         {
             return BadRequest("invalid_signal_payload", "Offer, answer and candidate signals require a payload.");
