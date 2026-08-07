@@ -1,4 +1,5 @@
 #if ANDROID
+using System.Collections.Concurrent;
 using Dyract.Transport;
 using Org.Webrtc;
 
@@ -119,8 +120,22 @@ internal static class RtcStatsSelectedPathResolver
 
 internal sealed class SelectedIcePathStatsCollector : Java.Lang.Object, IRTCStatsCollectorCallback
 {
+    private static readonly ConcurrentDictionary<int, SelectedIcePathStatsCollector> RetainedCollectors = new();
+    private static int _nextRetentionId;
+
     private readonly TaskCompletionSource<SelectedIcePathPrivacySummary?> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly int _retentionId;
+    private int _released;
+
+    public SelectedIcePathStatsCollector()
+    {
+        _retentionId = Interlocked.Increment(ref _nextRetentionId);
+        if (!RetainedCollectors.TryAdd(_retentionId, this))
+        {
+            throw new InvalidOperationException("Could not retain the WebRTC stats callback.");
+        }
+    }
 
     public Task<SelectedIcePathPrivacySummary?> Task => _completion.Task;
 
@@ -134,6 +149,26 @@ internal sealed class SelectedIcePathStatsCollector : Java.Lang.Object, IRTCStat
         {
             _completion.TrySetException(exception);
         }
+        finally
+        {
+            ReleaseRetention();
+        }
+    }
+
+    public void ReleaseRejectedRequest()
+    {
+        ReleaseRetention();
+        Dispose();
+    }
+
+    private void ReleaseRetention()
+    {
+        if (Interlocked.Exchange(ref _released, 1) != 0)
+        {
+            return;
+        }
+
+        RetainedCollectors.TryRemove(_retentionId, out _);
     }
 }
 #endif
