@@ -40,6 +40,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Show .NET environment
+        run: dotnet --info
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
