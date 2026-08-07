@@ -28,5 +28,6 @@
     <ProjectReference Include="../Dyract.Crypto/Dyract.Crypto.csproj" />
     <ProjectReference Include="../Dyract.Protocol/Dyract.Protocol.csproj" />
     <ProjectReference Include="../Dyract.Storage/Dyract.Storage.csproj" />
+    <ProjectReference Include="../Dyract.Transport/Dyract.Transport.csproj" />
   </ItemGroup>
 </Project>
