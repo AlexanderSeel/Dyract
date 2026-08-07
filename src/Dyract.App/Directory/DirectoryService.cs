@@ -69,10 +69,17 @@ public sealed class DirectoryService : IDirectoryService, IDisposable
             throw new SecurityException("Directory registration returned a different PeerId.");
         }
 
-        return new DirectoryRegistrationResult(
-            baseUri,
-            response.PeerId,
-            DateTimeOffset.FromUnixTimeSeconds(response.RegisteredUnixSeconds));
+        DateTimeOffset registeredAt;
+        try
+        {
+            registeredAt = DateTimeOffset.FromUnixTimeSeconds(response.RegisteredUnixSeconds);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new SecurityException("Directory registration returned an invalid timestamp.", exception);
+        }
+
+        return new DirectoryRegistrationResult(baseUri, response.PeerId, registeredAt);
     }
 
     public async Task<DirectoryReachabilityResult> ResolveAsync(
@@ -82,8 +89,15 @@ public sealed class DirectoryService : IDirectoryService, IDisposable
         ArgumentNullException.ThrowIfNull(contact);
         var baseUri = RequireBaseUri();
 
-        if (string.IsNullOrWhiteSpace(contact.Capability) ||
-            !ContactPairingCodec.TryDecode(contact.Capability, out var capability, out var decodeError) ||
+        if (string.IsNullOrWhiteSpace(contact.Capability))
+        {
+            throw new SecurityException("This contact does not have a stored pairing response.");
+        }
+
+        if (!ContactPairingCodec.TryDecode(
+                contact.Capability,
+                out var capability,
+                out var decodeError) ||
             capability is null)
         {
             throw new SecurityException(decodeError ?? "This contact does not have a valid stored pairing response.");
@@ -110,10 +124,32 @@ public sealed class DirectoryService : IDirectoryService, IDisposable
             throw new SecurityException("Directory resolved a different PeerId than requested.");
         }
 
-        var returnedPublicKey = Convert.FromBase64String(response.PublicKey);
+        byte[] returnedPublicKey;
+        try
+        {
+            returnedPublicKey = Convert.FromBase64String(response.PublicKey);
+        }
+        catch (FormatException exception)
+        {
+            throw new SecurityException("Directory returned malformed public-key material.", exception);
+        }
+
         if (!returnedPublicKey.AsSpan().SequenceEqual(contact.IdentityPublicKey))
         {
             throw new SecurityException("Directory returned public-key material that differs from the pinned contact identity.");
+        }
+
+        DateTimeOffset? leaseExpiresAt = null;
+        if (response.LeaseExpiresUnixSeconds is long expiry)
+        {
+            try
+            {
+                leaseExpiresAt = DateTimeOffset.FromUnixTimeSeconds(expiry);
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                throw new SecurityException("Directory returned an invalid presence lease expiry.", exception);
+            }
         }
 
         return new DirectoryReachabilityResult(
@@ -121,9 +157,7 @@ public sealed class DirectoryService : IDirectoryService, IDisposable
             response.PeerId,
             response.IsReachable,
             response.Candidates,
-            response.LeaseExpiresUnixSeconds is long expiry
-                ? DateTimeOffset.FromUnixTimeSeconds(expiry)
-                : null);
+            leaseExpiresAt);
     }
 
     public void Dispose()
