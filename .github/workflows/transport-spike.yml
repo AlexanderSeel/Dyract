@@ -7,6 +7,9 @@ on:
       - main
     paths:
       - 'experiments/Dyract.Transport.FsWebRtcProbe/**'
+      - 'experiments/Dyract.Transport.AndroidHarness/**'
+      - 'src/Dyract.Client/**'
+      - 'src/Dyract.Crypto/**'
       - 'src/Dyract.Transport/**'
       - 'src/Dyract.Protocol/**'
       - 'src/Dyract.Core/**'
@@ -29,7 +32,7 @@ permissions:
 jobs:
   android-binding-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -52,11 +55,20 @@ jobs:
       - name: Restore FsWebRTC binding probe
         run: dotnet restore experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj
 
+      - name: Restore Android diagnostic harness
+        run: dotnet restore experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj
+
       - name: Build FsWebRTC binding probe
         shell: bash
         run: |
           set -o pipefail
           dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee transport-build.log
+
+      - name: Build Android diagnostic harness
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet build experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj --configuration Release --no-restore 2>&1 | tee -a transport-build.log
 
       - name: Upload compiler diagnostics
         if: always()
