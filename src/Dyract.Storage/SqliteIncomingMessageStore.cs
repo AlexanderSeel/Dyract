@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Dyract.Storage;
 
-public sealed class SqliteIncomingMessageStore : IIncomingMessageStore
+public sealed class SqliteIncomingMessageStore : IIncomingMessageStore, IOutgoingDeliveryStore
 {
     private const int EncryptionNonceSize = 12;
     private const int EncryptionTagSize = 16;
@@ -44,20 +44,7 @@ public sealed class SqliteIncomingMessageStore : IIncomingMessageStore
         CancellationToken cancellationToken = default)
     {
         ValidateMessageId(messageId);
-        if (!PeerId.TryParse(senderPeerId, out var sender))
-        {
-            throw new ArgumentException("Sender PeerId is invalid.", nameof(senderPeerId));
-        }
-
-        if (!PeerId.TryParse(recipientPeerId, out var recipient))
-        {
-            throw new ArgumentException("Recipient PeerId is invalid.", nameof(recipientPeerId));
-        }
-
-        if (sender == recipient)
-        {
-            throw new ArgumentException("Sender and recipient PeerIds must differ.", nameof(recipientPeerId));
-        }
+        var (sender, recipient) = ValidatePeerPair(senderPeerId, recipientPeerId);
 
         if (string.IsNullOrWhiteSpace(text) || text.Length > MaximumTextLength)
         {
@@ -66,10 +53,6 @@ public sealed class SqliteIncomingMessageStore : IIncomingMessageStore
 
         var createdUnix = createdAt.ToUnixTimeMilliseconds();
         var receivedUnix = receivedAt.ToUnixTimeMilliseconds();
-        if (receivedUnix < createdUnix - TimeSpan.FromDays(3650).TotalMilliseconds)
-        {
-            throw new ArgumentException("Received timestamp is implausibly older than the message timestamp.", nameof(receivedAt));
-        }
 
         await _localStore.InitializeAsync(cancellationToken);
         var encryptedPayload = await ProtectTextAsync(
@@ -147,6 +130,108 @@ public sealed class SqliteIncomingMessageStore : IIncomingMessageStore
 
         transaction.Commit();
         return new IncomingMessageStoreResult(existing, false);
+    }
+
+    public async Task<bool> MarkOutgoingDeliveredAsync(
+        string messageId,
+        string senderPeerId,
+        string recipientPeerId,
+        DateTimeOffset deliveredAt,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateMessageId(messageId);
+        var (sender, recipient) = ValidatePeerPair(senderPeerId, recipientPeerId);
+        var deliveredUnix = deliveredAt.ToUnixTimeMilliseconds();
+
+        await _localStore.InitializeAsync(cancellationToken);
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+
+        LocalMessageDirection direction;
+        string storedSender;
+        string storedRecipient;
+        LocalMessageState state;
+
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT sender_peer_id, recipient_peer_id, direction, state
+                FROM messages
+                WHERE message_id = $message_id;
+                """;
+            select.Parameters.AddWithValue("$message_id", messageId);
+
+            await using var reader = await select.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                transaction.Rollback();
+                return false;
+            }
+
+            storedSender = reader.GetString(0);
+            storedRecipient = reader.GetString(1);
+            direction = (LocalMessageDirection)reader.GetInt32(2);
+            state = (LocalMessageState)reader.GetInt32(3);
+        }
+
+        if (direction != LocalMessageDirection.Outgoing ||
+            !string.Equals(storedSender, sender.Value, StringComparison.Ordinal) ||
+            !string.Equals(storedRecipient, recipient.Value, StringComparison.Ordinal))
+        {
+            transaction.Rollback();
+            throw new InvalidOperationException(
+                "Delivery ACK does not match the stored outgoing message peer scope.");
+        }
+
+        if (state is not (LocalMessageState.Delivered or LocalMessageState.Read))
+        {
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE messages
+                SET state = $state,
+                    delivered_utc = COALESCE(delivered_utc, $delivered_utc)
+                WHERE message_id = $message_id;
+                """;
+            update.Parameters.AddWithValue("$state", (int)LocalMessageState.Delivered);
+            update.Parameters.AddWithValue("$delivered_utc", deliveredUnix);
+            update.Parameters.AddWithValue("$message_id", messageId);
+            await update.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var remove = connection.CreateCommand())
+        {
+            remove.Transaction = transaction;
+            remove.CommandText = "DELETE FROM outbox WHERE message_id = $message_id;";
+            remove.Parameters.AddWithValue("$message_id", messageId);
+            await remove.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
+        return true;
+    }
+
+    private static (PeerId Sender, PeerId Recipient) ValidatePeerPair(
+        string senderPeerId,
+        string recipientPeerId)
+    {
+        if (!PeerId.TryParse(senderPeerId, out var sender))
+        {
+            throw new ArgumentException("Sender PeerId is invalid.", nameof(senderPeerId));
+        }
+
+        if (!PeerId.TryParse(recipientPeerId, out var recipient))
+        {
+            throw new ArgumentException("Recipient PeerId is invalid.", nameof(recipientPeerId));
+        }
+
+        if (sender == recipient)
+        {
+            throw new ArgumentException("Sender and recipient PeerIds must differ.", nameof(recipientPeerId));
+        }
+
+        return (sender, recipient);
     }
 
     private static void ValidateMessageId(string messageId)
