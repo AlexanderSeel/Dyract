@@ -139,6 +139,9 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
     private readonly FsWebRtcDirectoryHarness _harness;
     private readonly ExperimentalDataChannelAdapter? _outgoingDataChannel;
     private readonly Task<ExperimentalDataChannelAdapter>? _incomingDataChannel;
+    private readonly object _iceSummaryGate = new();
+    private readonly HashSet<string> _localCandidateSummaries = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _remoteCandidateSummaries = new(StringComparer.Ordinal);
     private int _disposed;
 
     internal FsWebRtcDiagnosticConnection(
@@ -153,11 +156,36 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
         _harness = harness;
         _outgoingDataChannel = outgoingDataChannel;
         _incomingDataChannel = incomingDataChannel;
+        _harness.LocalCandidateSummaryObserved += OnLocalCandidateSummaryObserved;
+        _harness.RemoteCandidateSummaryObserved += OnRemoteCandidateSummaryObserved;
     }
 
     public PeerId RemotePeerId { get; }
     public string SessionId { get; }
     public Task Connected => _harness.Connected;
+    public event Action? IceCandidateSummaryChanged;
+
+    public string LocalIceCandidateSummary
+    {
+        get
+        {
+            lock (_iceSummaryGate)
+            {
+                return FormatCandidateSummaries(_localCandidateSummaries);
+            }
+        }
+    }
+
+    public string RemoteIceCandidateSummary
+    {
+        get
+        {
+            lock (_iceSummaryGate)
+            {
+                return FormatCandidateSummaries(_remoteCandidateSummaries);
+            }
+        }
+    }
 
     public async Task<ExperimentalDataChannelAdapter> GetDataChannelAsync(
         CancellationToken cancellationToken = default)
@@ -240,8 +268,35 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
 
+        _harness.LocalCandidateSummaryObserved -= OnLocalCandidateSummaryObserved;
+        _harness.RemoteCandidateSummaryObserved -= OnRemoteCandidateSummaryObserved;
         return _harness.DisposeAsync();
     }
+
+    private void OnLocalCandidateSummaryObserved(IceCandidatePrivacySummary summary)
+        => AddCandidateSummary(_localCandidateSummaries, summary.DisplayValue);
+
+    private void OnRemoteCandidateSummaryObserved(IceCandidatePrivacySummary summary)
+        => AddCandidateSummary(_remoteCandidateSummaries, summary.DisplayValue);
+
+    private void AddCandidateSummary(HashSet<string> target, string value)
+    {
+        var changed = false;
+        lock (_iceSummaryGate)
+        {
+            changed = target.Add(value);
+        }
+
+        if (changed && Volatile.Read(ref _disposed) == 0)
+        {
+            IceCandidateSummaryChanged?.Invoke();
+        }
+    }
+
+    private static string FormatCandidateSummaries(HashSet<string> summaries)
+        => summaries.Count == 0
+            ? "none observed"
+            : string.Join(", ", summaries.OrderBy(value => value, StringComparer.Ordinal));
 
     private void ThrowIfDisposed()
     {
