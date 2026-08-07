@@ -177,10 +177,20 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
         return await _incomingDataChannel.WaitAsync(cancellationToken);
     }
 
+    public async Task WaitForDataChannelOpenAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        var channel = await GetDataChannelAsync(cancellationToken);
+        await channel.Opened.WaitAsync(cancellationToken);
+        ThrowIfDisposed();
+    }
+
     public async Task<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         var channel = await GetDataChannelAsync(cancellationToken);
+        await channel.Opened.WaitAsync(cancellationToken);
+
         var token = RandomNumberGenerator.GetBytes(DiagnosticFrame.TokenLength);
         var ping = DiagnosticFrame.Create(DiagnosticFrame.PingType, token);
         var stopwatch = Stopwatch.StartNew();
@@ -207,6 +217,7 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
     {
         ThrowIfDisposed();
         var channel = await GetDataChannelAsync(cancellationToken);
+        await channel.Opened.WaitAsync(cancellationToken);
 
         await foreach (var frame in channel.ReceiveAsync(cancellationToken))
         {
