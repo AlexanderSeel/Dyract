@@ -1,5 +1,6 @@
 #if ANDROID
 using Android.Content;
+using Dyract.Transport;
 using Org.Webrtc;
 
 namespace Dyract.Transport.FsWebRtcProbe;
@@ -111,6 +112,17 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
             candidate.SdpMLineIndex,
             candidate.Sdp);
         return _peerConnection.AddIceCandidate(nativeCandidate);
+    }
+
+    public async Task<SelectedIcePathPrivacySummary?> GetSelectedIcePathSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        using var collector = new SelectedIcePathStatsCollector();
+        _peerConnection.GetStats(collector);
+        var summary = await collector.Task.WaitAsync(cancellationToken);
+        ThrowIfDisposed();
+        return summary;
     }
 
     public ValueTask DisposeAsync()
