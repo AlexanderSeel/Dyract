@@ -2,17 +2,43 @@
 
 ## Status
 
-**Decision state: experimental — no production transport library selected yet.**
+**Decision state: experimental — Android compile proof complete; physical-device runtime proof still required.**
 
 Dyract now has:
 
 - capability-protected short-lived peer reachability,
 - short-lived authenticated signaling for offer/answer/candidate exchange,
+- typed and versioned transport-negotiation payloads,
 - a replaceable `IPeerTransport` / `IPeerConnection` abstraction,
+- a production-safe `IPeerSignalingGateway` abstraction,
+- an Android FsWebRTC peer-session experiment,
+- an Android negotiation coordinator that bridges WebRTC SDP/ICE to Dyract signaling,
+- a directory-driven diagnostic harness for initiator/responder testing,
 - `DirectOnly` vs `AllowRelay` policy,
 - encrypted local messages and transactional outbox.
 
-The next milestone is to prove a real data-only peer channel on physical Android and iPhone devices. Library choice must follow the physical-device evidence rather than drive the architecture.
+The FsWebRTC package remains isolated under `experiments/`; the shipping MAUI application references only Dyract transport contracts. The next milestone is a real data-only peer channel on physical devices. Library promotion must follow physical-device evidence rather than compile success alone.
+
+## Current Android compile proof
+
+The Android experiment is compile-proven against `FsWebRTC.Bindings.Maui.Android 0.9.3.15` on .NET 10 for:
+
+- `PeerConnectionFactory` initialization,
+- STUN `IceServer` and `RTCConfiguration`,
+- `PeerConnection` creation,
+- offer/answer creation,
+- local/remote SDP application,
+- local and remote ICE candidates,
+- `PeerConnection.IObserver`, `ISdpObserver` and `DataChannel.IObserver`,
+- outgoing and incoming DataChannels,
+- binary DataChannel send/receive,
+- bounded async receive queues,
+- connection/ICE/gathering state callbacks,
+- directory-driven offer/answer/trickle-ICE exchange,
+- remote ICE buffering until remote SDP is installed,
+- close/disposal flow for the native binding surface.
+
+Binding-specific findings are intentionally kept in the experiment rather than leaked into Dyract's shared transport API. In particular, generated Java binding shapes are treated as package-version-specific implementation details.
 
 ## Transport requirements
 
@@ -87,7 +113,7 @@ Useful comparison/reference candidate. Do not add as a production dependency wit
 
 ## Signaling contract already available
 
-Dyract's directory now carries transport negotiation as short-lived opaque signals:
+Dyract's directory carries transport negotiation as short-lived opaque signals:
 
 ```text
 POST /api/v1/signal/send
@@ -117,66 +143,103 @@ pending inbox   <= 64 per target
 fetch batch     <= 20
 ```
 
-Fetch does not delete a signal. The recipient ACKs only after the transport adapter has accepted/processed it. Expired negotiation items are purged automatically.
+The transport layer adds local validation before native WebRTC sees a signal: 128-bit hex signal/session IDs, valid sender Peer ID, timestamp ordering, maximum 60-second envelope lifetime, supported payload version and type-specific payload checks.
+
+Fetch does not delete a signal. A matching signal is ACKed only after it has been decoded and accepted by the negotiation coordinator. Malformed matching signals are ACKed as poison items so they cannot block the short-lived inbox indefinitely.
 
 This is intentionally **not a message mailbox**. Chat messages continue to live in the local encrypted outbox until a peer transport exists.
 
-## Proposed first experiment
+## Implemented diagnostic flow
 
-### Step 1 — Android native DataChannel proof
-
-Create an experimental implementation behind:
-
-```text
-IPeerTransport
-IPeerConnection
-```
-
-Do not wire the transactional message outbox into it yet.
-
-Proof target:
+The isolated Android experiment can now represent this flow in code:
 
 ```text
 Android A
-  -> create offer
-  -> Dyract signaling
+  -> create DataChannel
+  -> create + apply local offer
+  -> typed Dyract offer signal
+  -> authenticated directory signaling
+
 Android B
-  -> receive offer
-  -> create answer
-  -> Dyract signaling
-A/B
-  -> trickle ICE candidates
-  -> DataChannel opens
-  -> exchange fixed diagnostic byte frames
+  -> fetch + validate offer
+  -> apply remote offer
+  -> create + apply local answer
+  -> typed Dyract answer signal
+
+A / B
+  -> trickle typed ICE candidate signals
+  -> queue remote candidates until remote SDP exists
+  -> apply candidates
+  -> emit end-of-candidates when gathering completes
+  -> wait for connected state
+  -> exchange binary diagnostic frames
 ```
 
-### Step 2 — publish real candidates
+The directory harness polls at one-second intervals by default. This is diagnostic behavior only; wake-up/background delivery and production scheduling are separate concerns.
 
-Map gathered host/server-reflexive/relay candidates into the existing signed presence lease so a paired peer can query current reachability before starting a session.
+## Physical-device runtime matrix
 
-If the chosen WebRTC API handles all ICE candidates exclusively inside offer/trickle negotiation, adapt the directory representation rather than forcing the library into the current bootstrap candidate shape.
-
-### Step 3 — Android network matrix
-
-At minimum:
+Compile success is not an exit criterion. At minimum record the following on physical devices:
 
 | A | B | Expected evidence |
 |---|---|---|
-| same Wi-Fi | same Wi-Fi | direct host path |
-| Wi-Fi A | Wi-Fi B | STUN/direct where NAT permits |
-| Wi-Fi | cellular | direct vs relay result |
-| cellular | cellular | CGNAT behavior |
-| IPv6 capable | IPv6 capable | IPv6 candidate result |
+| Android Wi-Fi | Android same Wi-Fi | direct host path, DataChannel round-trip |
+| Android Wi-Fi | Android different Wi-Fi | STUN/direct where NAT permits |
+| Android Wi-Fi | Android cellular | direct/CGNAT result |
+| Android cellular | Android cellular | CGNAT behavior and clean DirectOnly failure where necessary |
+| Android IPv6 | Android IPv6 | IPv6 candidate/path behavior |
+| Android | iPhone | cross-platform offer/answer/ICE/DataChannel after iOS binding spike |
 
-Record only connection outcome/category by default. Do not log Peer IDs, SDP, IP addresses or ICE candidates in ordinary telemetry.
+For every run record only diagnostic categories by default:
 
-### Step 4 — iPhone
+- offer-to-connected duration,
+- candidate type used (`host`, `srflx`, `relay`),
+- DataChannel binary frame round-trip success,
+- reconnect/restart result after Wi-Fi/cellular transition,
+- clean timeout/failure behavior,
+- resource cleanup after close/retry.
 
-Repeat with iOS and then Android ↔ iPhone.
+Do not log Peer IDs, SDP text, IP addresses, ICE candidate bodies, message content or long-term keys in ordinary telemetry.
 
-An iOS project compiling is not sufficient evidence; the test must run on a physical iPhone because background/network behavior is part of the risk.
+## Next runtime experiments
 
-### Step 5 — TURN policy
+### 1. Android physical-device host
+
+Create a small experimental Android host that composes:
+
+```text
+FsWebRtcAndroidPeerSession
+FsWebRtcNegotiationCoordinator
+FsWebRtcDirectoryHarness
+IPeerSignalingGateway
+```
+
+It must remain under `experiments/` and must not move the FsWebRTC package into `Dyract.App` yet.
+
+The host should expose only diagnostic actions/status:
+
+```text
+identity / peer id
+configured directory
+paired target peer
+initiator / responder
+session id
+connection state
+candidate category summary
+send diagnostic frame
+last frame round-trip latency
+close / retry
+```
+
+### 2. Android network transitions
+
+After a successful connection, switch Wi-Fi/cellular and observe whether the session survives, fails, or requires a controlled ICE/session restart. Do not hide failures with an automatic TURN fallback while validating `DirectOnly`.
+
+### 3. iOS binding spike
+
+Repeat compile/API discovery for the iOS FsWebRTC binding, then run Android ↔ iPhone on physical devices. An iOS compile alone is not sufficient evidence because lifecycle/background/network behavior is part of the risk.
+
+### 4. TURN policy
 
 Compare:
 
@@ -189,25 +252,29 @@ AllowRelay
 
 ## Not part of the transport spike
 
-Do not conflate the following with successful WebRTC connectivity:
+Do not conflate successful WebRTC connectivity with:
 
-- Dyract peer identity authentication,
+- Dyract peer identity authentication at the application-session layer,
 - forward-secret application session keys,
 - message ACK semantics,
 - retry scheduling,
 - read receipts,
-- mobile wake-up.
+- transactional outbox delivery,
+- mobile wake-up/background scheduling.
 
-A DataChannel becoming `open` proves reachability, not that the Dyract security/session protocol is complete.
+A DataChannel becoming open proves reachability, not that the Dyract security/session protocol is complete.
 
 ## Exit criteria
 
 The spike is complete only when:
 
-1. two physical Android devices establish a data channel through Dyract signaling;
-2. host/STUN candidate behavior is recorded across multiple network combinations;
-3. relay behavior is tested separately;
-4. Android ↔ iPhone succeeds or a documented blocker is identified;
-5. lifecycle/disposal/network-change behavior is understood;
-6. the chosen library's license is acceptable;
-7. the implementation remains behind `IPeerTransport` with no message/business logic coupled to the library API.
+1. two physical Android devices establish a DataChannel through Dyract signaling;
+2. binary diagnostic frames round-trip successfully;
+3. host/STUN candidate behavior is recorded across the Android network matrix;
+4. clean timeout/failure behavior is verified where direct connectivity is impossible;
+5. Wi-Fi/cellular network-change behavior is understood;
+6. relay behavior is tested separately when `AllowRelay` is enabled;
+7. Android ↔ iPhone succeeds or a documented blocker is identified;
+8. native lifecycle/disposal behavior survives repeated connect/close/retry cycles;
+9. the chosen library's license is acceptable;
+10. the implementation remains behind Dyract transport abstractions with no message/business logic coupled to the native library API.
