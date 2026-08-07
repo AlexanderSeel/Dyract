@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/Dyract.Core/Dyract.Core.csproj" />
+  <Project Path="src/Dyract.Crypto/Dyract.Crypto.csproj" />
+  <Project Path="src/Dyract.Protocol/Dyract.Protocol.csproj" />
+  <Project Path="src/Dyract.Client/Dyract.Client.csproj" />
+  <Project Path="src/Dyract.App/Dyract.App.csproj" />
+</Solution>
