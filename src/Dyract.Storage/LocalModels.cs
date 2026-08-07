@@ -70,3 +70,12 @@ public sealed record PendingOutboxItem(
     string Text,
     int Attempts,
     DateTimeOffset NextAttemptAt);
+
+public sealed record DueOutboxMessage(
+    string MessageId,
+    string SenderPeerId,
+    string RecipientPeerId,
+    DateTimeOffset CreatedAt,
+    string Text,
+    int Attempts,
+    DateTimeOffset NextAttemptAt);
