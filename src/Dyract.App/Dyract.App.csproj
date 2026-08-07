@@ -18,6 +18,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Dyract.Client/Dyract.Client.csproj" />
     <ProjectReference Include="../Dyract.Core/Dyract.Core.csproj" />
     <ProjectReference Include="../Dyract.Crypto/Dyract.Crypto.csproj" />
