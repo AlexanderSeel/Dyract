@@ -1,4 +1,3 @@
-using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
 using Dyract.Server.Services;
 using Xunit;
@@ -8,26 +7,30 @@ namespace Dyract.Tests;
 public sealed class IdentityStoreTests
 {
     [Fact]
-    public void RegisteringSameIdentity_IsIdempotent()
+    public async Task RegisteringSameIdentity_IsIdempotent()
     {
         IIdentityStore store = new InMemoryIdentityStore();
         using var identity = PeerIdentity.Generate();
         var publicKey = identity.ExportPublicKey();
         var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
 
-        Assert.True(store.TryRegister(identity.PeerId, publicKey, now, out var first));
-        Assert.True(store.TryRegister(identity.PeerId, publicKey, now.AddMinutes(1), out var second));
+        var first = await store.RegisterAsync(identity.PeerId, publicKey, now);
+        var second = await store.RegisterAsync(identity.PeerId, publicKey, now.AddMinutes(1));
 
-        Assert.Equal(first, second);
-        Assert.Equal(now, second.RegisteredAt);
+        Assert.Equal(IdentityRegistrationStatus.Created, first.Status);
+        Assert.Equal(IdentityRegistrationStatus.Existing, second.Status);
+        Assert.Equal(first.Peer, second.Peer);
+        Assert.Equal(now, second.Peer.RegisteredAt);
     }
 
     [Fact]
-    public void UnknownIdentity_IsNotReturned()
+    public async Task UnknownIdentity_IsNotReturned()
     {
         IIdentityStore store = new InMemoryIdentityStore();
         using var identity = PeerIdentity.Generate();
 
-        Assert.False(store.TryGet(identity.PeerId, out _));
+        var peer = await store.GetAsync(identity.PeerId);
+
+        Assert.Null(peer);
     }
 }
