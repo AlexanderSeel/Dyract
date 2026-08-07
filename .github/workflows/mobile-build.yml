@@ -47,7 +47,7 @@ jobs:
         run: dotnet --info
 
       - name: Show validation snapshot
-        run: echo "Validating reliable message protocol, receive idempotency, scoped ACKs, and MAUI DI"
+        run: echo "Validating reliable message protocol v2 after test construction fix"
 
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
