@@ -158,8 +158,9 @@ public sealed class AuthenticatedSessionCipher : IDisposable
 
         sequence = BinaryPrimitives.ReadUInt64BigEndian(frame.Slice(5, 8));
         var encodedLength = BinaryPrimitives.ReadUInt32BigEndian(frame.Slice(13, 4));
+        var actualCiphertextLength = frame.Length - HeaderLength - TagLength;
         if (encodedLength is 0 or > MaximumPlaintextBytes ||
-            encodedLength != frame.Length - HeaderLength - TagLength)
+            encodedLength != checked((uint)actualCiphertextLength))
         {
             throw new CryptographicException("Authenticated session ciphertext length is invalid.");
         }
