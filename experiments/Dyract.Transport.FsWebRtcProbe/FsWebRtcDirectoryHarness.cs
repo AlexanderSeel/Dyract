@@ -75,6 +75,13 @@ public sealed class FsWebRtcDirectoryHarness : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    public Task<SelectedIcePathPrivacySummary?> GetSelectedIcePathSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        return _coordinator.GetSelectedIcePathSummaryAsync(cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
