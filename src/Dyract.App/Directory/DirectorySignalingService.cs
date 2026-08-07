@@ -100,10 +100,17 @@ public sealed class DirectorySignalingService : IDirectorySignalingService, IDis
         }
     }
 
-    private ContactCapability GetVerifiedCapability(LocalContact target, string localPeerId)
+    private static ContactCapability GetVerifiedCapability(LocalContact target, string localPeerId)
     {
-        if (string.IsNullOrWhiteSpace(target.Capability) ||
-            !ContactPairingCodec.TryDecode(target.Capability, out var capability, out var decodeError) ||
+        if (string.IsNullOrWhiteSpace(target.Capability))
+        {
+            throw new SecurityException("Target does not have a stored pairing response.");
+        }
+
+        if (!ContactPairingCodec.TryDecode(
+                target.Capability,
+                out var capability,
+                out var decodeError) ||
             capability is null)
         {
             throw new SecurityException(decodeError ?? "Target does not have a valid stored pairing response.");
