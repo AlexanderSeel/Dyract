@@ -6,41 +6,69 @@ namespace Dyract.Server.Services;
 
 public interface IIdentityStore
 {
-    bool TryRegister(
+    ValueTask<IdentityRegistrationResult> RegisterAsync(
         PeerId peerId,
         byte[] publicKey,
         DateTimeOffset registeredAt,
-        out RegisteredPeer peer);
+        CancellationToken cancellationToken = default);
 
-    bool TryGet(PeerId peerId, out RegisteredPeer peer);
+    ValueTask<RegisteredPeer?> GetAsync(
+        PeerId peerId,
+        CancellationToken cancellationToken = default);
+}
+
+public enum IdentityRegistrationStatus
+{
+    Created,
+    Existing,
+    Conflict
+}
+
+public sealed record IdentityRegistrationResult(
+    IdentityRegistrationStatus Status,
+    RegisteredPeer Peer)
+{
+    public bool IsAccepted => Status is IdentityRegistrationStatus.Created or IdentityRegistrationStatus.Existing;
 }
 
 public sealed class InMemoryIdentityStore : IIdentityStore
 {
     private readonly ConcurrentDictionary<string, RegisteredPeer> _peers = new(StringComparer.Ordinal);
 
-    public bool TryRegister(
+    public ValueTask<IdentityRegistrationResult> RegisterAsync(
         PeerId peerId,
         byte[] publicKey,
         DateTimeOffset registeredAt,
-        out RegisteredPeer peer)
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(publicKey);
 
         var candidate = new RegisteredPeer(peerId, publicKey.ToArray(), registeredAt);
 
         if (_peers.TryAdd(peerId.Value, candidate))
         {
-            peer = candidate;
-            return true;
+            return ValueTask.FromResult(new IdentityRegistrationResult(
+                IdentityRegistrationStatus.Created,
+                candidate));
         }
 
-        peer = _peers[peerId.Value];
-        return CryptographicOperations.FixedTimeEquals(peer.PublicKey, publicKey);
+        var existing = _peers[peerId.Value];
+        var status = CryptographicOperations.FixedTimeEquals(existing.PublicKey, publicKey)
+            ? IdentityRegistrationStatus.Existing
+            : IdentityRegistrationStatus.Conflict;
+
+        return ValueTask.FromResult(new IdentityRegistrationResult(status, existing));
     }
 
-    public bool TryGet(PeerId peerId, out RegisteredPeer peer)
-        => _peers.TryGetValue(peerId.Value, out peer!);
+    public ValueTask<RegisteredPeer?> GetAsync(
+        PeerId peerId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _peers.TryGetValue(peerId.Value, out var peer);
+        return ValueTask.FromResult(peer);
+    }
 }
 
 public sealed record RegisteredPeer(
