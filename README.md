@@ -76,7 +76,7 @@ Not implemented yet:
 - encrypted message/session protocol
 - attachments and delivery receipts
 
-See [PLAN.md](PLAN.md) for the implementation roadmap and [FAQ.md](FAQ.md) for design decisions and limitations.
+See [plan.md](plan.md) for the implementation roadmap and [faq.md](faq.md) for design decisions and limitations.
 
 ## Solution layout
 
