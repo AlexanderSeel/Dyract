@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/Dyract.Core/Dyract.Core.csproj" />
+  <Project Path="src/Dyract.Protocol/Dyract.Protocol.csproj" />
+  <Project Path="src/Dyract.Transport/Dyract.Transport.csproj" />
+  <Project Path="experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj" />
+</Solution>
