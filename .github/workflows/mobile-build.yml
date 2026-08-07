@@ -12,8 +12,13 @@ on:
       - 'src/Dyract.Crypto/**'
       - 'src/Dyract.Protocol/**'
       - 'src/Dyract.Storage/**'
+      - 'src/Dyract.Transport/**'
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   DOTNET_NOLOGO: true
