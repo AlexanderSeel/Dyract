@@ -1,11 +1,10 @@
 using Android.App;
 using Android.Content.PM;
-using Microsoft.Maui;
 
 namespace Dyract.Transport.AndroidHarness;
 
 [Activity(
-    Theme = "@style/Maui.SplashTheme",
+    Theme = "@style/Maui.MainTheme",
     MainLauncher = true,
     LaunchMode = LaunchMode.SingleTop,
     ConfigurationChanges = ConfigChanges.ScreenSize |
