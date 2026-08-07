@@ -44,6 +44,7 @@ public static class PeerNegotiationSignalCodec
 {
     public const int CurrentVersion = 1;
     public const int MaximumPayloadBytes = 32 * 1024;
+    public const int MaximumSignalLifetimeSeconds = 60;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -88,26 +89,36 @@ public static class PeerNegotiationSignalCodec
         signal = null;
         error = null;
 
+        if (!IsHexId(envelope.SignalId))
+        {
+            error = "Signal ID is invalid.";
+            return false;
+        }
+
         if (!PeerId.TryParse(envelope.SenderPeerId, out var senderPeerId))
         {
             error = "Signal sender PeerId is invalid.";
             return false;
         }
 
-        if (!IsSessionId(envelope.SessionId))
+        if (!IsHexId(envelope.SessionId))
         {
             error = "Signal session ID is invalid.";
             return false;
         }
 
-        DateTimeOffset expiresAt;
-        try
+        if (!TryUnixTime(envelope.CreatedUnixSeconds, out var createdAt) ||
+            !TryUnixTime(envelope.ExpiresUnixSeconds, out var expiresAt))
         {
-            expiresAt = DateTimeOffset.FromUnixTimeSeconds(envelope.ExpiresUnixSeconds);
+            error = "Signal timestamps are invalid.";
+            return false;
         }
-        catch (ArgumentOutOfRangeException)
+
+        if (createdAt > expiresAt ||
+            expiresAt - createdAt > TimeSpan.FromSeconds(MaximumSignalLifetimeSeconds) ||
+            createdAt > now.AddMinutes(2))
         {
-            error = "Signal expiry is invalid.";
+            error = "Signal timestamp ordering or lifetime is invalid.";
             return false;
         }
 
@@ -228,7 +239,21 @@ public static class PeerNegotiationSignalCodec
         return encoded;
     }
 
-    private static bool IsSessionId(string? value)
+    private static bool TryUnixTime(long unixSeconds, out DateTimeOffset value)
+    {
+        try
+        {
+            value = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            value = default;
+            return false;
+        }
+    }
+
+    private static bool IsHexId(string? value)
         => value is { Length: 32 } && value.All(Uri.IsHexDigit);
 
     private sealed record SessionDescriptionPayload(int Version, string Sdp);
