@@ -27,6 +27,19 @@ public static class DataChannelApiProbe
         return dataChannel.State?.ToString() ?? string.Empty;
     }
 
+    public static bool IsOpen(DataChannel dataChannel)
+    {
+        ArgumentNullException.ThrowIfNull(dataChannel);
+        return dataChannel.State == DataChannel.State.Open;
+    }
+
+    public static bool IsClosingOrClosed(DataChannel dataChannel)
+    {
+        ArgumentNullException.ThrowIfNull(dataChannel);
+        return dataChannel.State == DataChannel.State.Closing ||
+               dataChannel.State == DataChannel.State.Closed;
+    }
+
     public static bool SendBinary(DataChannel dataChannel, byte[] payload)
     {
         ArgumentNullException.ThrowIfNull(dataChannel);
