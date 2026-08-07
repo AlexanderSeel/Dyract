@@ -35,6 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: List transport experiment files
+        run: find experiments/Dyract.Transport.FsWebRtcProbe -maxdepth 1 -type f -print | sort
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
