@@ -47,6 +47,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Inspecting generated FsWebRTC RTCStats/getStats binding symbols"
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
@@ -59,11 +62,20 @@ jobs:
       - name: Restore Android diagnostic harness
         run: dotnet restore experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj
 
+      - name: Inspect RTC stats binding symbols
+        shell: bash
+        run: |
+          set -o pipefail
+          PACKAGE="$HOME/.nuget/packages/fswebrtc.bindings.maui.android/0.9.3.15"
+          DLL=$(find "$PACKAGE" -type f -name '*.dll' | head -n 1)
+          echo "Binding DLL: $DLL" | tee transport-build.log
+          strings "$DLL" | grep -Ei 'RTCStats|StatsReport|GetStats|getStats|CandidatePair|candidate-pair|LocalCandidate|RemoteCandidate|Members|TimestampUs' | sort -u | head -n 600 | tee -a transport-build.log || true
+
       - name: Build FsWebRTC binding probe
         shell: bash
         run: |
           set -o pipefail
-          dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee transport-build.log
+          dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore 2>&1 | tee -a transport-build.log
 
       - name: Build Android diagnostic harness
         shell: bash
