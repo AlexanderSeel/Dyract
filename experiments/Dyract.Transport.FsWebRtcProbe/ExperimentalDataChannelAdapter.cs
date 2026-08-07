@@ -10,6 +10,7 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
     private const int MaximumExperimentalFrameBytes = 256 * 1024;
 
     private readonly DataChannel _dataChannel;
+    private readonly TaskCompletionSource _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Channel<byte[]> _frames = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
     {
         FullMode = BoundedChannelFullMode.DropWrite,
@@ -23,23 +24,33 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
     {
         _dataChannel = dataChannel ?? throw new ArgumentNullException(nameof(dataChannel));
         _dataChannel.RegisterObserver(this);
+        ObserveNativeState();
     }
 
     public event Action? StateChanged;
     public event Action<Exception>? ProtocolError;
+
+    public Task Opened => _opened.Task;
 
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
 
         if (payload.IsEmpty || payload.Length > MaximumExperimentalFrameBytes)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(payload),
                 $"Experimental DataChannel frame must contain 1-{MaximumExperimentalFrameBytes} bytes.");
+        }
+
+        await _opened.Task.WaitAsync(cancellationToken);
+        ThrowIfDisposed();
+
+        if (_dataChannel.InvokeState() != DataChannel.State.Open)
+        {
+            throw new InvalidOperationException("Native WebRTC DataChannel is not open.");
         }
 
         var bytes = payload.ToArray();
@@ -50,8 +61,6 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
         {
             throw new InvalidOperationException("Native WebRTC DataChannel rejected the frame.");
         }
-
-        await ValueTask.CompletedTask;
     }
 
     public IAsyncEnumerable<byte[]> ReceiveAsync(CancellationToken cancellationToken = default)
@@ -61,10 +70,13 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
 
     public void OnStateChange()
     {
-        if (Volatile.Read(ref _disposed) == 0)
+        if (Volatile.Read(ref _disposed) != 0)
         {
-            StateChanged?.Invoke();
+            return;
         }
+
+        ObserveNativeState();
+        StateChanged?.Invoke();
     }
 
     public void OnMessage(DataChannel.Buffer? buffer)
@@ -111,12 +123,37 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
             return ValueTask.CompletedTask;
         }
 
+        _opened.TrySetException(new ObjectDisposedException(nameof(ExperimentalDataChannelAdapter)));
         _frames.Writer.TryComplete();
         _dataChannel.UnregisterObserver();
         _dataChannel.Close();
         _dataChannel.Dispose();
         Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    private void ObserveNativeState()
+    {
+        try
+        {
+            var state = _dataChannel.InvokeState();
+            if (state == DataChannel.State.Open)
+            {
+                _opened.TrySetResult();
+                return;
+            }
+
+            if (state == DataChannel.State.Closing || state == DataChannel.State.Closed)
+            {
+                _opened.TrySetException(
+                    new InvalidOperationException("Native WebRTC DataChannel closed before reaching OPEN."));
+            }
+        }
+        catch (Exception exception)
+        {
+            _opened.TrySetException(exception);
+            ProtocolError?.Invoke(exception);
+        }
     }
 
     private void ThrowIfDisposed()
