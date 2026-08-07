@@ -1,16 +1,10 @@
+using System.Security.Cryptography;
 using Dyract.Core.Identity;
 using Dyract.Protocol;
 using Dyract.Storage;
+using Dyract.Transport;
 
 namespace Dyract.Client;
-
-public interface IPeerApplicationFrameSender
-{
-    Task SendAsync(
-        PeerId recipientPeerId,
-        ReadOnlyMemory<byte> frame,
-        CancellationToken cancellationToken = default);
-}
 
 public sealed record OutboxDeliveryCycleResult(
     int Examined,
@@ -122,6 +116,10 @@ public sealed class OutboxDeliveryWorker
                 {
                     changedConcurrently++;
                 }
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(frame);
             }
         }
 
