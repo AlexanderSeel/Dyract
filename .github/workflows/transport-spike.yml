@@ -49,5 +49,8 @@ jobs:
       - name: Show installed workloads
         run: dotnet workload list
 
+      - name: Restore FsWebRTC binding probe
+        run: dotnet restore experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj
+
       - name: Build FsWebRTC binding probe
-        run: dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release
+        run: dotnet build experiments/Dyract.Transport.FsWebRtcProbe/Dyract.Transport.FsWebRtcProbe.csproj --configuration Release --no-restore
