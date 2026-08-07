@@ -46,6 +46,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating standalone Android physical-device transport harness"
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
