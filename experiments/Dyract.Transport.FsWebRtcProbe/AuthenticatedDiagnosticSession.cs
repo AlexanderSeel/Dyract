@@ -18,6 +18,7 @@ public sealed class AuthenticatedDiagnosticSession : IDisposable, IPeerApplicati
     private readonly AuthenticatedExperimentalDataChannel _channel;
     private readonly PeerId _localPeerId;
     private readonly PeerId _remotePeerId;
+    private readonly SemaphoreSlim _probeGate = new(1, 1);
     private int _disposed;
 
     private AuthenticatedDiagnosticSession(
@@ -97,40 +98,16 @@ public sealed class AuthenticatedDiagnosticSession : IDisposable, IPeerApplicati
     public async Task<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        var token = RandomNumberGenerator.GetBytes(DiagnosticFrame.TokenLength);
-        var ping = DiagnosticFrame.Create(DiagnosticFrame.PingType, token);
-        var stopwatch = Stopwatch.StartNew();
-
+        await _probeGate.WaitAsync(cancellationToken);
         try
         {
-            await _channel.SendAsync(ping, cancellationToken);
+            ThrowIfDisposed();
+            return await PingCoreAsync(cancellationToken);
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(ping);
+            _probeGate.Release();
         }
-
-        await foreach (var frame in _channel.ReceiveAsync(cancellationToken))
-        {
-            try
-            {
-                if (!DiagnosticFrame.TryParse(frame, out var type, out var receivedToken) ||
-                    type != DiagnosticFrame.PongType ||
-                    !receivedToken.AsSpan().SequenceEqual(token))
-                {
-                    continue;
-                }
-
-                stopwatch.Stop();
-                return stopwatch.Elapsed;
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(frame);
-            }
-        }
-
-        throw new EndOfStreamException("Authenticated diagnostic channel closed before the matching pong was received.");
     }
 
     public async Task<AuthenticatedMessageAckProbeResult> MessageAckProbeAsync(
@@ -138,78 +115,16 @@ public sealed class AuthenticatedDiagnosticSession : IDisposable, IPeerApplicati
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-        if (text.Length > 512)
-        {
-            throw new ArgumentOutOfRangeException(nameof(text), "Diagnostic message probe is limited to 512 characters.");
-        }
-
-        var messageId = Guid.CreateVersion7().ToString("N");
-        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(
-            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        var packet = PeerMessagingProtocol.Encode(new PeerTextMessageFrame(
-            messageId,
-            _localPeerId,
-            _remotePeerId,
-            createdAt,
-            text));
-        var stopwatch = Stopwatch.StartNew();
-
+        await _probeGate.WaitAsync(cancellationToken);
         try
         {
-            await _channel.SendAsync(packet, cancellationToken);
+            ThrowIfDisposed();
+            return await MessageAckProbeCoreAsync(text, cancellationToken);
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(packet);
+            _probeGate.Release();
         }
-
-        await foreach (var frame in _channel.ReceiveAsync(cancellationToken))
-        {
-            try
-            {
-                if (!LooksLikeMessagingFrame(frame))
-                {
-                    continue;
-                }
-
-                if (!PeerMessagingProtocol.TryDecode(frame, out var decoded, out var decodeError) ||
-                    decoded is null)
-                {
-                    throw new InvalidDataException(
-                        decodeError ?? "Authenticated diagnostic DYRM response could not be decoded.");
-                }
-
-                if (!PeerMessagingProtocol.TryValidateForReceiver(
-                        decoded,
-                        _localPeerId,
-                        _remotePeerId,
-                        DateTimeOffset.UtcNow,
-                        out var validationError))
-                {
-                    throw new InvalidDataException(
-                        validationError ?? "Authenticated diagnostic DYRM response failed peer-scope validation.");
-                }
-
-                if (decoded is not PeerDeliveryAckFrame ack ||
-                    !string.Equals(ack.MessageId, messageId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                stopwatch.Stop();
-                return new AuthenticatedMessageAckProbeResult(
-                    messageId,
-                    stopwatch.Elapsed);
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(frame);
-            }
-        }
-
-        throw new EndOfStreamException(
-            "Authenticated diagnostic channel closed before the matching DYRM delivery ACK was received.");
     }
 
     public async Task RunEchoResponderAsync(CancellationToken cancellationToken = default)
@@ -290,6 +205,122 @@ public sealed class AuthenticatedDiagnosticSession : IDisposable, IPeerApplicati
         }
 
         _channel.Dispose();
+    }
+
+    private async Task<TimeSpan> PingCoreAsync(CancellationToken cancellationToken)
+    {
+        var token = RandomNumberGenerator.GetBytes(DiagnosticFrame.TokenLength);
+        var ping = DiagnosticFrame.Create(DiagnosticFrame.PingType, token);
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await _channel.SendAsync(ping, cancellationToken);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(ping);
+        }
+
+        await foreach (var frame in _channel.ReceiveAsync(cancellationToken))
+        {
+            try
+            {
+                if (!DiagnosticFrame.TryParse(frame, out var type, out var receivedToken) ||
+                    type != DiagnosticFrame.PongType ||
+                    !receivedToken.AsSpan().SequenceEqual(token))
+                {
+                    continue;
+                }
+
+                stopwatch.Stop();
+                return stopwatch.Elapsed;
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(frame);
+            }
+        }
+
+        throw new EndOfStreamException("Authenticated diagnostic channel closed before the matching pong was received.");
+    }
+
+    private async Task<AuthenticatedMessageAckProbeResult> MessageAckProbeCoreAsync(
+        string text,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        if (text.Length > 512)
+        {
+            throw new ArgumentOutOfRangeException(nameof(text), "Diagnostic message probe is limited to 512 characters.");
+        }
+
+        var messageId = Guid.CreateVersion7().ToString("N");
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var packet = PeerMessagingProtocol.Encode(new PeerTextMessageFrame(
+            messageId,
+            _localPeerId,
+            _remotePeerId,
+            createdAt,
+            text));
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await _channel.SendAsync(packet, cancellationToken);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(packet);
+        }
+
+        await foreach (var frame in _channel.ReceiveAsync(cancellationToken))
+        {
+            try
+            {
+                if (!LooksLikeMessagingFrame(frame))
+                {
+                    continue;
+                }
+
+                if (!PeerMessagingProtocol.TryDecode(frame, out var decoded, out var decodeError) ||
+                    decoded is null)
+                {
+                    throw new InvalidDataException(
+                        decodeError ?? "Authenticated diagnostic DYRM response could not be decoded.");
+                }
+
+                if (!PeerMessagingProtocol.TryValidateForReceiver(
+                        decoded,
+                        _localPeerId,
+                        _remotePeerId,
+                        DateTimeOffset.UtcNow,
+                        out var validationError))
+                {
+                    throw new InvalidDataException(
+                        validationError ?? "Authenticated diagnostic DYRM response failed peer-scope validation.");
+                }
+
+                if (decoded is not PeerDeliveryAckFrame ack ||
+                    !string.Equals(ack.MessageId, messageId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                stopwatch.Stop();
+                return new AuthenticatedMessageAckProbeResult(
+                    messageId,
+                    stopwatch.Elapsed);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(frame);
+            }
+        }
+
+        throw new EndOfStreamException(
+            "Authenticated diagnostic channel closed before the matching DYRM delivery ACK was received.");
     }
 
     private static bool LooksLikeMessagingFrame(ReadOnlySpan<byte> frame)
