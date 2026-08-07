@@ -22,6 +22,11 @@ public sealed class MainPage : ContentPage
     private readonly Label _peerIdLabel = new() { LineBreakMode = LineBreakMode.CharacterWrap };
     private readonly Label _remotePeerLabel = new() { Text = "Remote peer: not loaded", LineBreakMode = LineBreakMode.CharacterWrap };
     private readonly Label _statusLabel = new() { Text = "Not initialized", LineBreakMode = LineBreakMode.WordWrap };
+    private readonly Label _iceSummaryLabel = new()
+    {
+        Text = "Local candidates: none observed\nRemote candidates: none observed",
+        LineBreakMode = LineBreakMode.WordWrap
+    };
     private readonly Label _logLabel = new() { LineBreakMode = LineBreakMode.WordWrap };
     private readonly Editor _remoteInvitationEditor = new()
     {
@@ -111,6 +116,8 @@ public sealed class MainPage : ContentPage
                     Section("ICE / STUN"),
                     _stunEntry,
                     new Label { Text = "Leave blank for host-candidate/LAN testing. TURN is intentionally not enabled in this DirectOnly harness." },
+                    new Label { Text = "Candidate diagnostics show only privacy-safe categories such as host/udp or srflx/udp. Raw ICE candidates, addresses and ports are never shown here." },
+                    _iceSummaryLabel,
                     Section("Connection"),
                     new HorizontalStackLayout
                     {
@@ -273,31 +280,41 @@ public sealed class MainPage : ContentPage
         _gateway = gateway;
         Preferences.Default.Set(StunPreference, _stunEntry.Text?.Trim() ?? string.Empty);
 
-        var controller = new FsWebRtcDiagnosticController(
-            Android.App.Application.Context,
-            gateway,
-            ParseStunUris(_stunEntry.Text));
-
-        _connection = await controller.StartInitiatorAsync(remotePeerId);
-        SetStatus($"Offer sent. Session {_connection.SessionId}. Waiting for WebRTC peer connection...");
-        AppendLog($"Initiator session {_connection.SessionId} started.");
-
         try
         {
-            await _connection.Connected.WaitAsync(TimeSpan.FromSeconds(45));
+            var controller = new FsWebRtcDiagnosticController(
+                Android.App.Application.Context,
+                gateway,
+                ParseStunUris(_stunEntry.Text));
+
+            _connection = await controller.StartInitiatorAsync(remotePeerId);
+            AttachConnectionDiagnostics(_connection);
+            SetStatus($"Offer sent. Session {_connection.SessionId}. Waiting for WebRTC peer connection...");
+            AppendLog($"Initiator session {_connection.SessionId} started.");
+
+            try
+            {
+                await _connection.Connected.WaitAsync(TimeSpan.FromSeconds(45));
+            }
+            catch (TimeoutException)
+            {
+                throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
+            }
+
+            SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
+            AppendLog("Native WebRTC connection reached Connected.");
+            AppendIceSummary(_connection);
+            await AuthenticateInitiatorAsync(_connection, remotePeerId);
+
+            _pingButton.IsEnabled = true;
+            SetStatus($"Authenticated session ready. Session {_connection.SessionId}. Ping is ready.");
+            AppendLog("DataChannel OPEN and Dyract identity-authenticated session established.");
         }
-        catch (TimeoutException)
+        catch
         {
-            throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
+            await CloseConnectionAsync();
+            throw;
         }
-
-        SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
-        AppendLog("Native WebRTC connection reached Connected.");
-        await AuthenticateInitiatorAsync(_connection, remotePeerId);
-
-        _pingButton.IsEnabled = true;
-        SetStatus($"Authenticated session ready. Session {_connection.SessionId}. Ping is ready.");
-        AppendLog("DataChannel OPEN and Dyract identity-authenticated session established.");
     }
 
     private async Task StartResponderAsync()
@@ -307,35 +324,45 @@ public sealed class MainPage : ContentPage
         _gateway = gateway;
         Preferences.Default.Set(StunPreference, _stunEntry.Text?.Trim() ?? string.Empty);
 
-        var controller = new FsWebRtcDiagnosticController(
-            Android.App.Application.Context,
-            gateway,
-            ParseStunUris(_stunEntry.Text));
-
-        SetStatus("Waiting up to 60 seconds for a valid offer from the pinned peer...");
-        _connection = await controller.WaitForOfferAndStartResponderAsync(
-            remotePeerId,
-            TimeSpan.FromSeconds(60));
-        AppendLog($"Responder accepted session {_connection.SessionId}.");
-
         try
         {
-            await _connection.Connected.WaitAsync(TimeSpan.FromSeconds(45));
+            var controller = new FsWebRtcDiagnosticController(
+                Android.App.Application.Context,
+                gateway,
+                ParseStunUris(_stunEntry.Text));
+
+            SetStatus("Waiting up to 60 seconds for a valid offer from the pinned peer...");
+            _connection = await controller.WaitForOfferAndStartResponderAsync(
+                remotePeerId,
+                TimeSpan.FromSeconds(60));
+            AttachConnectionDiagnostics(_connection);
+            AppendLog($"Responder accepted session {_connection.SessionId}.");
+
+            try
+            {
+                await _connection.Connected.WaitAsync(TimeSpan.FromSeconds(45));
+            }
+            catch (TimeoutException)
+            {
+                throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
+            }
+
+            SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
+            AppendLog("Native WebRTC connection reached Connected.");
+            AppendIceSummary(_connection);
+            await AuthenticateResponderAsync(_connection, remotePeerId);
+
+            _echoCancellation = new CancellationTokenSource();
+            _echoTask = RunEchoLoopAsync(_authenticatedSession!, _echoCancellation.Token);
+            _pingButton.IsEnabled = false;
+            SetStatus($"Authenticated responder ready. Session {_connection.SessionId}. Encrypted echo loop active.");
+            AppendLog("DataChannel OPEN and Dyract identity-authenticated session established; encrypted ping echo enabled.");
         }
-        catch (TimeoutException)
+        catch
         {
-            throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
+            await CloseConnectionAsync();
+            throw;
         }
-
-        SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
-        AppendLog("Native WebRTC connection reached Connected.");
-        await AuthenticateResponderAsync(_connection, remotePeerId);
-
-        _echoCancellation = new CancellationTokenSource();
-        _echoTask = RunEchoLoopAsync(_authenticatedSession!, _echoCancellation.Token);
-        _pingButton.IsEnabled = false;
-        SetStatus($"Authenticated responder ready. Session {_connection.SessionId}. Encrypted echo loop active.");
-        AppendLog("DataChannel OPEN and Dyract identity-authenticated session established; encrypted ping echo enabled.");
     }
 
     private async Task AuthenticateInitiatorAsync(
@@ -402,6 +429,10 @@ public sealed class MainPage : ContentPage
         var elapsed = await authenticated.PingAsync(timeout.Token);
         SetStatus($"Authenticated pong received in {elapsed.TotalMilliseconds:F1} ms.");
         AppendLog($"Authenticated encrypted DYRT frame RTT: {elapsed.TotalMilliseconds:F1} ms.");
+        if (_connection is not null)
+        {
+            AppendIceSummary(_connection);
+        }
     }
 
     private async Task RunEchoLoopAsync(
@@ -472,15 +503,6 @@ public sealed class MainPage : ContentPage
         _pingButton.IsEnabled = false;
         _echoCancellation?.Cancel();
 
-        _authenticatedSession?.Dispose();
-        _authenticatedSession = null;
-
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-            _connection = null;
-        }
-
         if (_echoTask is not null)
         {
             try
@@ -493,11 +515,45 @@ public sealed class MainPage : ContentPage
             _echoTask = null;
         }
 
+        _authenticatedSession?.Dispose();
+        _authenticatedSession = null;
+
+        if (_connection is not null)
+        {
+            _connection.IceCandidateSummaryChanged -= OnIceCandidateSummaryChanged;
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
+
         _echoCancellation?.Dispose();
         _echoCancellation = null;
         _gateway?.Dispose();
         _gateway = null;
+        UpdateIceSummary(null);
         SetStatus("Connection closed.");
+    }
+
+    private void AttachConnectionDiagnostics(FsWebRtcDiagnosticConnection connection)
+    {
+        connection.IceCandidateSummaryChanged += OnIceCandidateSummaryChanged;
+        UpdateIceSummary(connection);
+    }
+
+    private void OnIceCandidateSummaryChanged()
+    {
+        MainThread.BeginInvokeOnMainThread(() => UpdateIceSummary(_connection));
+    }
+
+    private void UpdateIceSummary(FsWebRtcDiagnosticConnection? connection)
+    {
+        _iceSummaryLabel.Text = connection is null
+            ? "Local candidates: none observed\nRemote candidates: none observed"
+            : $"Local candidates: {connection.LocalIceCandidateSummary}\nRemote candidates: {connection.RemoteIceCandidateSummary}";
+    }
+
+    private void AppendIceSummary(FsWebRtcDiagnosticConnection connection)
+    {
+        AppendLog($"ICE categories only — local: {connection.LocalIceCandidateSummary}; remote: {connection.RemoteIceCandidateSummary}.");
     }
 
     private byte[] GetRemoteIdentityPublicKey()
