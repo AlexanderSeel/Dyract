@@ -41,7 +41,8 @@ public sealed class PeerMessagingProtocolTests
     {
         using var aliceIdentity = PeerIdentity.Generate();
         using var bobIdentity = PeerIdentity.Generate();
-        var createdAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(
+            DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds());
         var text = new PeerTextMessageFrame(
             MessageId,
             aliceIdentity.PeerId,
