@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Dyract.App.ConversationPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="12">
+        <Border Grid.Row="0" Padding="12" StrokeThickness="1">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="12" />
+            </Border.StrokeShape>
+            <VerticalStackLayout Spacing="4">
+                <Label x:Name="ContactNameLabel" FontAttributes="Bold" FontSize="18" />
+                <Label x:Name="ContactPeerIdLabel" FontFamily="monospace" FontSize="10" LineBreakMode="CharacterWrap" />
+                <Label x:Name="ContactFingerprintLabel" FontFamily="monospace" FontSize="10" />
+            </VerticalStackLayout>
+        </Border>
+
+        <CollectionView
+            x:Name="MessagesView"
+            Grid.Row="1"
+            EmptyView="No messages yet. Messages you send are committed locally before any network delivery is attempted.">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,4" Padding="12" StrokeThickness="1">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="12" />
+                        </Border.StrokeShape>
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                            <Label
+                                Grid.Row="0"
+                                Grid.ColumnSpan="2"
+                                LineBreakMode="WordWrap"
+                                Text="{Binding Text}" />
+                            <Label
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                FontSize="10"
+                                Text="{Binding CreatedAt, StringFormat='{0:HH:mm}'}" />
+                            <Label
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                FontSize="10"
+                                Text="{Binding State}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Entry
+                x:Name="ComposerEntry"
+                Grid.Column="0"
+                Completed="OnComposerCompleted"
+                Placeholder="Message" />
+            <Button
+                x:Name="SendButton"
+                Grid.Column="1"
+                Clicked="OnSendClicked"
+                IsEnabled="False"
+                Text="Send" />
+        </Grid>
+
+        <Label
+            x:Name="ConversationStatusLabel"
+            Grid.Row="3"
+            FontSize="11"
+            Text="Loading encrypted conversation…" />
+    </Grid>
+</ContentPage>
