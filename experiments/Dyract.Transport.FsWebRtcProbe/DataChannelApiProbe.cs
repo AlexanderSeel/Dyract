@@ -35,7 +35,7 @@ public static class DataChannelApiProbe
     {
         ArgumentNullException.ThrowIfNull(buffer);
         var data = buffer.Data;
-        var bytes = new byte[data.Remaining()];
+        var bytes = new byte[data.Remaining];
         data.Get(bytes);
         return bytes;
     }
