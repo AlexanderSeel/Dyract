@@ -30,4 +30,53 @@ public sealed record PeerLookupResponse(
     string PublicKey,
     long RegisteredUnixSeconds);
 
+public sealed record ContactCapability(
+    int Version,
+    string IssuerPeerId,
+    string GranteePeerId,
+    string CapabilityId,
+    long IssuedUnixSeconds,
+    long ExpiresUnixSeconds,
+    string Signature);
+
+public sealed record ConnectionCandidate(
+    string Kind,
+    string Protocol,
+    string Address,
+    int Port,
+    int Priority);
+
+public sealed record PublishPresenceRequest(
+    string PeerId,
+    ConnectionCandidate[] Candidates,
+    long LeaseExpiresUnixSeconds,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
+public sealed record PublishPresenceResponse(
+    string PeerId,
+    long LeaseExpiresUnixSeconds);
+
+public sealed record RemovePresenceRequest(
+    string PeerId,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
+public sealed record ResolvePeerRequest(
+    string RequesterPeerId,
+    string TargetPeerId,
+    ContactCapability Capability,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
+public sealed record ResolvePeerResponse(
+    string PeerId,
+    string PublicKey,
+    bool IsReachable,
+    ConnectionCandidate[] Candidates,
+    long? LeaseExpiresUnixSeconds);
+
 public sealed record ApiError(string Code, string Message);
