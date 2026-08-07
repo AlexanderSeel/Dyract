@@ -36,7 +36,6 @@ public readonly record struct IceCandidatePrivacySummary(
             return false;
         }
 
-        var transport = ParseTransport(tokens[2]);
         var typeIndex = -1;
         for (var index = 6; index < tokens.Length - 1; index++)
         {
@@ -47,14 +46,23 @@ public readonly record struct IceCandidatePrivacySummary(
             }
         }
 
-        if (typeIndex < 0)
+        return typeIndex >= 0 && TryCreate(tokens[typeIndex + 1], tokens[2], out summary);
+    }
+
+    public static bool TryCreate(
+        string? candidateType,
+        string? transport,
+        out IceCandidatePrivacySummary summary)
+    {
+        summary = default;
+        if (string.IsNullOrWhiteSpace(candidateType) || string.IsNullOrWhiteSpace(transport))
         {
             return false;
         }
 
         summary = new IceCandidatePrivacySummary(
-            ParseCategory(tokens[typeIndex + 1]),
-            transport);
+            ParseCategory(candidateType),
+            ParseTransport(transport));
         return true;
     }
 
@@ -93,4 +101,11 @@ public readonly record struct IceCandidatePrivacySummary(
             IceTransportCategory.Tcp => "tcp",
             _ => "unknown"
         };
+}
+
+public sealed record SelectedIcePathPrivacySummary(
+    IceCandidatePrivacySummary Local,
+    IceCandidatePrivacySummary Remote)
+{
+    public string DisplayValue => $"{Local.DisplayValue} -> {Remote.DisplayValue}";
 }
