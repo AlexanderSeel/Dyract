@@ -47,20 +47,34 @@ public sealed class IceCandidatePrivacySummaryTests
     }
 
     [Theory]
-    [InlineData("host", "udp", IceCandidateCategory.Host, IceTransportCategory.Udp)]
-    [InlineData("srflx", "TCP", IceCandidateCategory.ServerReflexive, IceTransportCategory.Tcp)]
-    [InlineData("future-candidate", "quic", IceCandidateCategory.Unknown, IceTransportCategory.Unknown)]
-    public void TryCreate_ClassifiesStatsTokensWithoutEchoingThem(
+    [InlineData("host", "udp", IceCandidateCategory.Host, IceTransportCategory.Udp, "host/udp")]
+    [InlineData("srflx", "TCP", IceCandidateCategory.ServerReflexive, IceTransportCategory.Tcp, "srflx/tcp")]
+    public void TryCreate_ClassifiesKnownStatsTokens(
         string candidateType,
         string transport,
         IceCandidateCategory expectedCategory,
-        IceTransportCategory expectedTransport)
+        IceTransportCategory expectedTransport,
+        string expectedDisplay)
     {
         Assert.True(IceCandidatePrivacySummary.TryCreate(candidateType, transport, out var summary));
         Assert.Equal(expectedCategory, summary.Category);
         Assert.Equal(expectedTransport, summary.Transport);
-        Assert.DoesNotContain(candidateType, summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(transport, summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expectedDisplay, summary.DisplayValue);
+    }
+
+    [Fact]
+    public void TryCreate_UnknownStatsTokens_AreNotEchoed()
+    {
+        Assert.True(IceCandidatePrivacySummary.TryCreate(
+            "future-candidate",
+            "quic",
+            out var summary));
+
+        Assert.Equal(IceCandidateCategory.Unknown, summary.Category);
+        Assert.Equal(IceTransportCategory.Unknown, summary.Transport);
+        Assert.Equal("unknown/unknown", summary.DisplayValue);
+        Assert.DoesNotContain("future-candidate", summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("quic", summary.DisplayValue, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
