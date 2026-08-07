@@ -15,7 +15,8 @@ Its purpose is to prove direct WebRTC DataChannel connectivity through Dyract's 
 - DataChannel OPEN-state gating;
 - a signed ephemeral Dyract identity handshake over the opened DataChannel;
 - directional HKDF-derived session keys;
-- AES-256-GCM protected `DYRT` diagnostic ping/pong frames.
+- AES-256-GCM protected `DYRT` diagnostic ping/pong frames;
+- privacy-safe ICE candidate summaries containing only candidate class + transport.
 
 It does **not** use the shipping app database and it does not send chat messages.
 
@@ -87,7 +88,7 @@ Repeat B -> A.
 
 A pairing response is grantee-bound. Do not reuse a response generated for another Peer ID. The imported capability is stored in platform SecureStorage by the harness.
 
-### 4. STUN setting
+### 4. STUN setting and privacy-safe ICE diagnostics
 
 For same-LAN host-candidate testing, leave the STUN field empty.
 
@@ -98,6 +99,17 @@ stun:your-stun-host.example:3478
 ```
 
 The harness intentionally accepts only `stun:` URIs. TURN is excluded from this DirectOnly experiment so relay connectivity cannot hide a failed direct path.
+
+The UI exposes only de-duplicated candidate categories such as:
+
+```text
+Local candidates: host/udp, srflx/udp
+Remote candidates: host/udp, srflx/udp
+```
+
+The classifier intentionally discards the raw candidate address, port, foundation, priority, related address/port and other SDP material. `unknown/unknown` is used for an unrecognized future candidate/transport rather than echoing an unfamiliar token back to the UI.
+
+These summaries describe candidate categories **observed during negotiation**. They do not yet prove which candidate pair WebRTC finally selected; selected-pair reporting would require a separately validated stats binding and must remain equally privacy-safe.
 
 ### 5. Establish WebRTC and the authenticated Dyract session
 
@@ -199,6 +211,8 @@ Record only:
 
 - test network category;
 - which connection stage was reached;
+- observed local candidate categories (`host`, `srflx`, `prflx`, `relay`, plus `udp`/`tcp`);
+- observed remote candidate categories;
 - offer-to-WebRTC-connected time;
 - authenticated-session establishment result;
 - authenticated ping RTT;
@@ -218,6 +232,7 @@ Do not put raw Peer IDs, SDP, IP addresses, candidate strings, keys, invitations
 - no Double Ratchet / post-compromise ratcheting yet;
 - no asynchronous prekeys/offline E2E session bootstrap;
 - no transactional chat outbox delivery over this transport yet;
+- no selected ICE pair stats reporting yet;
 - no iOS runtime adapter yet;
 - current FsWebRTC Android native library has the documented Android 16 KB page-size `XA0141` production-promotion blocker.
 
