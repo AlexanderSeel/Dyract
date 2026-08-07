@@ -158,9 +158,10 @@ public sealed class PeerMessageProcessorTests
         using var remote = PeerIdentity.Generate();
         var incomingStore = new StubIncomingStore();
         var processor = new PeerMessageProcessor(incomingStore, new StubOutgoingDeliveryStore());
+        var malformed = new byte[] { 0x01, 0x02, 0x03 };
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            processor.ProcessIncomingAsync([0x01, 0x02, 0x03], local.PeerId, remote.PeerId));
+            processor.ProcessIncomingAsync(malformed, local.PeerId, remote.PeerId));
         Assert.Equal(0, incomingStore.CallCount);
     }
 
