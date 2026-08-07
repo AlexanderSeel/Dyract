@@ -43,3 +43,5 @@ jobs:
 
       - name: Test
         run: dotnet test Dyract.slnx --configuration Release --no-build
+
+# validation-snapshot: final-selected-path-2026-08-07
