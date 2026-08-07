@@ -11,7 +11,7 @@ public sealed class PresenceStoreTests
     public void PresenceLease_IsAvailableUntilExpiry()
     {
         var store = new PresenceStore();
-        var peerId = PeerId.Parse("dyr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var peerId = PeerId.FromPublicKey(new byte[] { 1, 2, 3 });
         var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
         var candidate = new ConnectionCandidate("host", "udp", "192.168.1.20", 45000, 100);
 
@@ -26,7 +26,7 @@ public sealed class PresenceStoreTests
     public void PresenceLease_IsRemovedAfterExpiry()
     {
         var store = new PresenceStore();
-        var peerId = PeerId.Parse("dyr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var peerId = PeerId.FromPublicKey(new byte[] { 4, 5, 6 });
         var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
 
         store.Publish(
