@@ -47,6 +47,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating durable due-outbox worker with transport dependency graph"
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
