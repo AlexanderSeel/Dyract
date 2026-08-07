@@ -87,3 +87,5 @@ jobs:
           name: transport-build-log
           path: transport-build.log
           if-no-files-found: warn
+
+# validation-snapshot: rtc-stats-callback-lifetime-2026-08-07
