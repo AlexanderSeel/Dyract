@@ -5,7 +5,7 @@ using Android.OS;
 namespace Dyract.App;
 
 [Activity(
-    Theme = "@style/Maui.SplashTheme",
+    Theme = "@style/Maui.MainTheme",
     MainLauncher = true,
     LaunchMode = LaunchMode.SingleTop,
     ConfigurationChanges = ConfigChanges.ScreenSize |
