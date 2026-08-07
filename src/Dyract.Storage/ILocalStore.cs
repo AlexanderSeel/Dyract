@@ -25,15 +25,6 @@ public interface ILocalStore
         DateTimeOffset? createdAt = null,
         CancellationToken cancellationToken = default);
 
-    Task<IncomingMessageStoreResult> StoreIncomingTextAsync(
-        string messageId,
-        string senderPeerId,
-        string recipientPeerId,
-        string text,
-        DateTimeOffset createdAt,
-        DateTimeOffset receivedAt,
-        CancellationToken cancellationToken = default);
-
     Task<IReadOnlyList<LocalMessage>> GetMessagesAsync(
         string conversationId,
         int limit = 200,
@@ -52,5 +43,17 @@ public interface ILocalStore
     Task MarkDeliveredAsync(
         string messageId,
         DateTimeOffset deliveredAt,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IIncomingMessageStore
+{
+    Task<IncomingMessageStoreResult> StoreIncomingTextAsync(
+        string messageId,
+        string senderPeerId,
+        string recipientPeerId,
+        string text,
+        DateTimeOffset createdAt,
+        DateTimeOffset receivedAt,
         CancellationToken cancellationToken = default);
 }
