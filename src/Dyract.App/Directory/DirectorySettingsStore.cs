@@ -29,7 +29,7 @@ public sealed class DirectorySettingsStore : IDirectorySettingsStore
         if (!TryNormalize(value, out var uri))
         {
             throw new ArgumentException(
-                "Directory URL must be an absolute HTTPS URL without credentials, query, or fragment.",
+                "Directory URL must be an HTTPS origin such as https://directory.example.com with no credentials, path, query, or fragment.",
                 nameof(value));
         }
 
@@ -45,7 +45,9 @@ public sealed class DirectorySettingsStore : IDirectorySettingsStore
         if (string.IsNullOrWhiteSpace(value) ||
             !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var parsed) ||
             parsed.Scheme != Uri.UriSchemeHttps ||
+            string.IsNullOrWhiteSpace(parsed.Host) ||
             !string.IsNullOrEmpty(parsed.UserInfo) ||
+            parsed.AbsolutePath is not ("" or "/") ||
             !string.IsNullOrEmpty(parsed.Query) ||
             !string.IsNullOrEmpty(parsed.Fragment))
         {
@@ -54,7 +56,7 @@ public sealed class DirectorySettingsStore : IDirectorySettingsStore
 
         var builder = new UriBuilder(parsed)
         {
-            Path = string.IsNullOrWhiteSpace(parsed.AbsolutePath) ? "/" : parsed.AbsolutePath.TrimEnd('/') + "/"
+            Path = "/"
         };
 
         uri = builder.Uri;
