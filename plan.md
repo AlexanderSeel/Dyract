@@ -17,11 +17,11 @@ These rules should remain true unless a future architecture decision explicitly 
 5. Knowing a valid Peer ID must not allow impersonation.
 6. Contacts, display names, avatars, conversations and message bodies are local data.
 7. Presence/reachability records are short-lived leases, not permanent IP records.
-8. P2P transport is preferred; relay is an explicit fallback rather than the primary path.
-9. Undelivered messages remain in the sender's local outbox.
-10. Protocols are versioned from the first release.
-11. Cryptographic primitives come from reviewed platform/libraries; Dyract does not invent algorithms.
-12. Endpoint disclosure should require contact capability authorization before production.
+8. Endpoint disclosure requires authorization from the target peer.
+9. P2P transport is preferred; relay is an explicit fallback rather than the primary path.
+10. Undelivered messages remain in the sender's local outbox.
+11. Protocols are versioned from the first release.
+12. Cryptographic primitives come from reviewed platform/libraries; Dyract does not invent algorithms.
 
 ## 3. Target architecture
 
@@ -32,6 +32,7 @@ These rules should remain true unless a future architecture decision explicitly 
                          +---------------------------+
                          | Identity registry         |
                          | Presence leases           |
+                         | Capability verification   |
                          | ICE signaling             |
                          | Wake-up routing           |
                          | Rate limiting             |
@@ -71,7 +72,7 @@ tests/
 
 ## 5. Phase 0 — identity/directory bootstrap
 
-**Status: started in the first implementation.**
+**Status: core bootstrap implemented.**
 
 ### Scope
 
@@ -86,8 +87,8 @@ tests/
 - [x] Add initial unit tests.
 - [ ] Add integration tests around the ASP.NET API.
 - [ ] Add structured logging/metrics without logging sensitive payloads.
-- [ ] Add server rate limiting.
-- [ ] Persist registered identities in PostgreSQL.
+- [ ] Add server rate limiting and request-size limits.
+- [ ] Persist registered identities in PostgreSQL behind an interface.
 
 ### Exit criteria
 
@@ -95,50 +96,73 @@ Two generated identities can register against a local server. A registered peer 
 
 ## 6. Phase 1 — contact authorization and presence
 
+**Status: first implementation complete.**
+
 This phase turns the identity registry into a safe discovery service.
 
 ### Contact capability
 
-A QR/contact invitation should contain a capability created by the target peer. The directory can validate the capability without storing a global friendship/contact graph.
-
-Conceptually:
+The implemented capability is signed by the target/issuer and bound to one grantee:
 
 ```text
 ContactCapability
-  version
-  targetPeerId
-  random capability secret or token material
-  optional expiry
-  target signature
+  Version
+  IssuerPeerId
+  GranteePeerId
+  CapabilityId       random 128-bit ID
+  IssuedUnixSeconds
+  ExpiresUnixSeconds
+  Signature          issuer identity signature
 ```
 
-Do not return IP/ICE candidates merely because a requester knows a Peer ID.
+The capability is held by the contact receiving permission. The server verifies it when presence is resolved but does not persist a friendship/contact graph.
+
+A capability is reusable until expiry; each resolve request still requires a fresh requester signature, timestamp and nonce. Capability revocation before expiry is deliberately deferred and must be designed before production.
 
 ### Presence leases
 
-Add a short-lived presence model:
+The current model is:
 
 ```text
 PeerPresence
   PeerId
   connection candidates
-  protocol version
   last refresh
   expires at
 ```
 
-Requirements:
+Implemented requirements:
 
-- [ ] Signed publish/update/delete presence requests.
-- [ ] 1-2 minute lease TTL.
-- [ ] Automatic expiry.
-- [ ] No permanent IP history in application storage.
-- [ ] Redis or equivalent ephemeral store when scaling requires it.
-- [ ] Capability-authorized endpoint lookup.
+- [x] Signed publish/update presence requests.
+- [x] Signed presence deletion.
+- [x] Maximum two-minute lease TTL; client defaults to 90 seconds.
+- [x] Automatic expiry during store access/publication.
+- [x] No permanent endpoint/IP history in the prototype application store.
+- [x] Capability-authorized endpoint lookup via `/api/v1/peer/resolve`.
+- [x] Request timestamp and replay-nonce validation.
+- [x] Candidate count/address/protocol/port validation.
+- [x] Unit tests for signed capability/proof and presence expiry behavior.
+- [ ] Redis or equivalent ephemeral store when horizontal scaling requires it.
+- [ ] Capability revocation/rotation mechanism.
+- [ ] ASP.NET end-to-end authorization tests.
+
+Current candidate model:
+
+```text
+kind      host | srflx | relay
+protocol  udp | tcp
+address   IPv4 | IPv6
+port      1..65535
+priority  >= 0
+```
+
+Loopback, unspecified, multicast and broadcast addresses are rejected. A maximum of eight candidates is accepted per lease.
 
 ### Exit criteria
 
-Peer A can publish a temporary endpoint lease. Authorized Peer B can obtain it. Unauthorized registered peers cannot retrieve the endpoint.
+The implementation now supports the intended flow: Peer A can publish a short-lived endpoint lease, and an authenticated Peer B can resolve that lease only when it presents a valid capability signed by Peer A for Peer B. Knowing Peer A's Peer ID alone does not disclose endpoint candidates.
+
+Formal API integration tests remain before this phase is considered hardened.
 
 ## 7. Phase 2 — local mobile foundation
 
@@ -169,6 +193,20 @@ Settings
 ```
 
 Never treat local display names as directory identity attributes.
+
+### Contact invitation representation
+
+Before QR UI is added, define a versioned portable invitation format containing at least:
+
+```text
+protocol version
+PeerId
+identity public-key/fingerprint data needed for verification
+contact capability when it is already grantee-bound
+optional human-readable checksum
+```
+
+Do not include profile/contact data that the directory does not need.
 
 ### UX slice
 
@@ -204,6 +242,8 @@ Planned transport strategy:
 1. LAN/direct candidate where possible.
 2. ICE with STUN for NAT traversal.
 3. Optional TURN relay when direct establishment fails.
+
+The existing presence candidate contract is a bootstrap representation, not a commitment to invent a custom ICE protocol. The transport spike should use a mature ICE/WebRTC-compatible implementation where practical and adapt the directory signaling contract around that implementation.
 
 ### Test matrix
 
@@ -373,12 +413,12 @@ The first usable MVP is reached when:
 
 ## 17. Immediate next implementation tasks
 
-After the bootstrap PR:
+With identity registration and capability-protected presence now implemented, the next sequence is:
 
-1. Add ASP.NET integration tests for registration/lookup failure modes.
-2. Add server-side rate limiting and request-size limits.
-3. Replace in-memory identity persistence with PostgreSQL behind an interface.
-4. Specify and implement contact capability tokens.
-5. Add signed presence leases, but do not expose endpoints before capability checks are in place.
-6. Create the MAUI shell and secure identity persistence.
-7. Begin the ICE/STUN connectivity spike on two physical phones.
+1. Add ASP.NET integration tests covering registration, presence, capability authorization, expiry and replay failure modes.
+2. Add server-side rate limiting and global/per-endpoint request-size limits.
+3. Put durable identity persistence behind an interface and add PostgreSQL implementation; keep presence ephemeral.
+4. Define the versioned contact invitation/QR payload and fingerprint UX.
+5. Create the .NET MAUI shell and platform secure identity persistence.
+6. Add `Dyract.Storage` with SQLite repositories for contacts, conversations, messages and outbox.
+7. Add `Dyract.Transport` abstractions and begin the ICE/STUN connectivity spike on physical Android/iPhone devices.
