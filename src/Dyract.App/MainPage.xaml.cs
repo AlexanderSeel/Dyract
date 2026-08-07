@@ -1,3 +1,4 @@
+using Dyract.App.Directory;
 using Dyract.App.Security;
 using Dyract.Client;
 using Dyract.Protocol;
@@ -10,16 +11,22 @@ public partial class MainPage : ContentPage
 {
     private readonly IIdentityVault _identityVault;
     private readonly ILocalStore _localStore;
+    private readonly IDirectoryService _directoryService;
     private string? _peerId;
     private string? _contactInvitation;
     private bool _initialized;
     private bool _busy;
+    private bool _directoryBusy;
 
-    public MainPage(IIdentityVault identityVault, ILocalStore localStore)
+    public MainPage(
+        IIdentityVault identityVault,
+        ILocalStore localStore,
+        IDirectoryService directoryService)
     {
         InitializeComponent();
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
         _localStore = localStore ?? throw new ArgumentNullException(nameof(localStore));
+        _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
     }
 
     protected override async void OnAppearing()
@@ -42,6 +49,8 @@ public partial class MainPage : ContentPage
             CopyPeerIdButton.IsEnabled = false;
             CopyInviteButton.IsEnabled = false;
             AddContactButton.IsEnabled = false;
+            SaveDirectoryButton.IsEnabled = false;
+            RegisterDirectoryButton.IsEnabled = false;
             StatusLabel.Text = exception is IdentityVaultException
                 ? exception.Message
                 : "Dyract could not initialize its local identity or encrypted data store.";
@@ -56,12 +65,19 @@ public partial class MainPage : ContentPage
         _peerId = identity.PeerId.Value;
         _contactInvitation = ContactInvitationFactory.Create(identity);
         var publicKey = identity.ExportPublicKey();
+        var configuredDirectory = _directoryService.ConfiguredBaseUri;
 
         PeerIdLabel.Text = _peerId;
         FingerprintLabel.Text = $"Fingerprint: {ContactInvitationCodec.GetFingerprint(publicKey)}";
+        DirectoryUrlEntry.Text = configuredDirectory?.AbsoluteUri ?? string.Empty;
+        DirectoryStatusLabel.Text = configuredDirectory is null
+            ? "No directory configured."
+            : $"Configured: {configuredDirectory}";
         CopyPeerIdButton.IsEnabled = true;
         CopyInviteButton.IsEnabled = true;
         AddContactButton.IsEnabled = true;
+        SaveDirectoryButton.IsEnabled = true;
+        RegisterDirectoryButton.IsEnabled = configuredDirectory is not null;
         StatusLabel.Text = "Identity and encrypted local storage ready.";
         _initialized = true;
     }
@@ -98,6 +114,56 @@ public partial class MainPage : ContentPage
 
         await Clipboard.Default.SetTextAsync(_contactInvitation);
         StatusLabel.Text = "Contact invitation copied. Share it through a channel you trust.";
+    }
+
+    private void OnSaveDirectoryClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _directoryBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            var uri = _directoryService.Configure(DirectoryUrlEntry.Text ?? string.Empty);
+            DirectoryUrlEntry.Text = uri.AbsoluteUri;
+            DirectoryStatusLabel.Text = $"Configured: {uri}";
+            RegisterDirectoryButton.IsEnabled = true;
+        }
+        catch (ArgumentException exception)
+        {
+            RegisterDirectoryButton.IsEnabled = _directoryService.ConfiguredBaseUri is not null;
+            DirectoryStatusLabel.Text = exception.Message;
+        }
+    }
+
+    private async void OnRegisterDirectoryClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _directoryBusy)
+        {
+            return;
+        }
+
+        _directoryBusy = true;
+        SaveDirectoryButton.IsEnabled = false;
+        RegisterDirectoryButton.IsEnabled = false;
+
+        try
+        {
+            var result = await _directoryService.RegisterAsync();
+            DirectoryStatusLabel.Text =
+                $"Registered {ShortPeerId(result.PeerId)} at {result.BaseUri}.";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException or System.Security.SecurityException)
+        {
+            DirectoryStatusLabel.Text = $"Directory registration failed: {exception.Message}";
+        }
+        finally
+        {
+            _directoryBusy = false;
+            SaveDirectoryButton.IsEnabled = _initialized;
+            RegisterDirectoryButton.IsEnabled = _initialized && _directoryService.ConfiguredBaseUri is not null;
+        }
     }
 
     private async void OnAddContactClicked(object? sender, EventArgs e)
@@ -245,6 +311,13 @@ public partial class MainPage : ContentPage
         }
 
         ContactsView.SelectedItem = null;
-        await Navigation.PushAsync(new ConversationPage(_localStore, _identityVault, contact));
+        await Navigation.PushAsync(new ConversationPage(
+            _localStore,
+            _identityVault,
+            _directoryService,
+            contact));
     }
+
+    private static string ShortPeerId(string peerId)
+        => peerId.Length <= 18 ? peerId : $"{peerId[..10]}…{peerId[^6..]}";
 }
