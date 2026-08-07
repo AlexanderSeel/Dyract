@@ -118,8 +118,17 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        using var collector = new SelectedIcePathStatsCollector();
-        _peerConnection.GetStats(collector);
+        var collector = new SelectedIcePathStatsCollector();
+        try
+        {
+            _peerConnection.GetStats(collector);
+        }
+        catch
+        {
+            collector.ReleaseRejectedRequest();
+            throw;
+        }
+
         var summary = await collector.Task.WaitAsync(cancellationToken);
         ThrowIfDisposed();
         return summary;
