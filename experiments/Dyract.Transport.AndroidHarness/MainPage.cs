@@ -24,7 +24,7 @@ public sealed class MainPage : ContentPage
     private readonly Label _statusLabel = new() { Text = "Not initialized", LineBreakMode = LineBreakMode.WordWrap };
     private readonly Label _iceSummaryLabel = new()
     {
-        Text = "Local candidates: none observed\nRemote candidates: none observed",
+        Text = "Local candidates: none observed\nRemote candidates: none observed\nSelected path: unavailable",
         LineBreakMode = LineBreakMode.WordWrap
     };
     private readonly Label _logLabel = new() { LineBreakMode = LineBreakMode.WordWrap };
@@ -118,7 +118,10 @@ public sealed class MainPage : ContentPage
                     Section("ICE / STUN"),
                     _stunEntry,
                     new Label { Text = "Leave blank for host-candidate/LAN testing. TURN is intentionally not enabled in this DirectOnly harness." },
-                    new Label { Text = "Candidate diagnostics show only privacy-safe categories such as host/udp or srflx/udp. Raw ICE candidates, addresses and ports are never shown here." },
+                    new Label
+                    {
+                        Text = "Observed candidates show only privacy-safe categories such as host/udp or srflx/udp. Selected path is resolved from WebRTC stats and is also reduced to category/transport only. Raw ICE candidates, stats IDs, addresses and ports are never shown here."
+                    },
                     _iceSummaryLabel,
                     Section("Connection"),
                     new HorizontalStackLayout
@@ -311,6 +314,7 @@ public sealed class MainPage : ContentPage
             AppendLog("Native WebRTC connection reached Connected.");
             AppendIceSummary(_connection);
             await AuthenticateInitiatorAsync(_connection, remotePeerId);
+            await RefreshSelectedIcePathAsync(_connection);
 
             _pingButton.IsEnabled = true;
             _messageAckButton.IsEnabled = true;
@@ -358,6 +362,7 @@ public sealed class MainPage : ContentPage
             AppendLog("Native WebRTC connection reached Connected.");
             AppendIceSummary(_connection);
             await AuthenticateResponderAsync(_connection, remotePeerId);
+            await RefreshSelectedIcePathAsync(_connection);
 
             _echoCancellation = new CancellationTokenSource();
             _echoTask = RunEchoLoopAsync(_authenticatedSession!, _echoCancellation.Token);
@@ -439,6 +444,7 @@ public sealed class MainPage : ContentPage
         AppendLog($"Authenticated encrypted DYRT frame RTT: {elapsed.TotalMilliseconds:F1} ms.");
         if (_connection is not null)
         {
+            await RefreshSelectedIcePathAsync(_connection);
             AppendIceSummary(_connection);
         }
     }
@@ -450,9 +456,10 @@ public sealed class MainPage : ContentPage
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var result = await authenticated.MessageAckProbeAsync(cancellationToken: timeout.Token);
         SetStatus($"Authenticated DYRM delivery ACK received in {result.RoundTripTime.TotalMilliseconds:F1} ms.");
-        AppendLog($"DYRM text -> delivery ACK RTT: {result.RoundTripTime.TotalMilliseconds:F1} ms; MessageId {result.MessageId[..8]}… (diagnostic only). ");
+        AppendLog($"DYRM text -> delivery ACK RTT: {result.RoundTripTime.TotalMilliseconds:F1} ms (diagnostic only). ");
         if (_connection is not null)
         {
+            await RefreshSelectedIcePathAsync(_connection);
             AppendIceSummary(_connection);
         }
     }
@@ -472,8 +479,8 @@ public sealed class MainPage : ContentPage
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                SetStatus($"Encrypted responder loop failed: {exception.Message}");
-                AppendLog("Authenticated DYRT/DYRM responder loop stopped with an error.");
+                SetStatus($"Encrypted responder loop failed ({exception.GetType().Name}).");
+                AppendLog($"Authenticated DYRT/DYRM responder loop stopped ({exception.GetType().Name}).");
             });
         }
     }
@@ -570,13 +577,39 @@ public sealed class MainPage : ContentPage
     private void UpdateIceSummary(FsWebRtcDiagnosticConnection? connection)
     {
         _iceSummaryLabel.Text = connection is null
-            ? "Local candidates: none observed\nRemote candidates: none observed"
-            : $"Local candidates: {connection.LocalIceCandidateSummary}\nRemote candidates: {connection.RemoteIceCandidateSummary}";
+            ? "Local candidates: none observed\nRemote candidates: none observed\nSelected path: unavailable"
+            : $"Local candidates: {connection.LocalIceCandidateSummary}\n" +
+              $"Remote candidates: {connection.RemoteIceCandidateSummary}\n" +
+              $"Selected path: {connection.SelectedIcePathSummary}";
+    }
+
+    private async Task RefreshSelectedIcePathAsync(FsWebRtcDiagnosticConnection connection)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await connection.RefreshSelectedIcePathSummaryAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog("Selected ICE path stats unavailable.");
+        }
+        catch (Exception exception)
+        {
+            AppendLog($"Selected ICE path stats unavailable ({exception.GetType().Name}).");
+        }
+        finally
+        {
+            UpdateIceSummary(connection);
+        }
     }
 
     private void AppendIceSummary(FsWebRtcDiagnosticConnection connection)
     {
-        AppendLog($"ICE categories only — local: {connection.LocalIceCandidateSummary}; remote: {connection.RemoteIceCandidateSummary}.");
+        AppendLog(
+            $"ICE categories only — local: {connection.LocalIceCandidateSummary}; " +
+            $"remote: {connection.RemoteIceCandidateSummary}; " +
+            $"selected: {connection.SelectedIcePathSummary}.");
     }
 
     private byte[] GetRemoteIdentityPublicKey()
@@ -656,8 +689,8 @@ public sealed class MainPage : ContentPage
         }
         catch (Exception exception)
         {
-            SetStatus(exception.Message);
-            AppendLog($"ERROR: {exception.GetType().Name}: {exception.Message}");
+            SetStatus($"Operation failed ({exception.GetType().Name}).");
+            AppendLog($"ERROR: {exception.GetType().Name}.");
         }
     }
 
