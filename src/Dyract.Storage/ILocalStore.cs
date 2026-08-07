@@ -57,3 +57,13 @@ public interface IIncomingMessageStore
         DateTimeOffset receivedAt,
         CancellationToken cancellationToken = default);
 }
+
+public interface IOutgoingDeliveryStore
+{
+    Task<bool> MarkOutgoingDeliveredAsync(
+        string messageId,
+        string senderPeerId,
+        string recipientPeerId,
+        DateTimeOffset deliveredAt,
+        CancellationToken cancellationToken = default);
+}
