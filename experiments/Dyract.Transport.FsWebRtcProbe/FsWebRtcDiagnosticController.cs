@@ -142,6 +142,7 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
     private readonly object _iceSummaryGate = new();
     private readonly HashSet<string> _localCandidateSummaries = new(StringComparer.Ordinal);
     private readonly HashSet<string> _remoteCandidateSummaries = new(StringComparer.Ordinal);
+    private SelectedIcePathPrivacySummary? _selectedIcePath;
     private int _disposed;
 
     internal FsWebRtcDiagnosticConnection(
@@ -185,6 +186,42 @@ public sealed class FsWebRtcDiagnosticConnection : IAsyncDisposable
                 return FormatCandidateSummaries(_remoteCandidateSummaries);
             }
         }
+    }
+
+    public string SelectedIcePathSummary
+    {
+        get
+        {
+            lock (_iceSummaryGate)
+            {
+                return _selectedIcePath?.DisplayValue ?? "unavailable";
+            }
+        }
+    }
+
+    public async Task<SelectedIcePathPrivacySummary?> RefreshSelectedIcePathSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        var selected = await _harness.GetSelectedIcePathSummaryAsync(cancellationToken);
+        ThrowIfDisposed();
+
+        var changed = false;
+        lock (_iceSummaryGate)
+        {
+            if (!Equals(_selectedIcePath, selected))
+            {
+                _selectedIcePath = selected;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            IceCandidateSummaryChanged?.Invoke();
+        }
+
+        return selected;
     }
 
     public async Task<ExperimentalDataChannelAdapter> GetDataChannelAsync(
