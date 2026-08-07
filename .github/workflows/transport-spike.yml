@@ -47,6 +47,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating physical UI DYRT ping and authenticated DYRM message/ACK probes"
+
       - name: Install Android workload
         run: dotnet workload install maui-android
 
