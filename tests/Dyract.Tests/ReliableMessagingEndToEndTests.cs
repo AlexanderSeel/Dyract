@@ -34,14 +34,14 @@ public sealed class ReliableMessagingEndToEndTests
                 aliceIdentity.ExportPublicKey(),
                 "Alice"));
 
-            var aliceReliability = new SqliteIncomingMessageStore(aliceDatabase, aliceKey, aliceStore);
-            var bobReliability = new SqliteIncomingMessageStore(bobDatabase, bobKey, bobStore);
-            var aliceProcessor = new PeerMessageProcessor(aliceReliability, aliceReliability);
-            var bobProcessor = new PeerMessageProcessor(bobReliability, bobReliability);
-            var aliceOutbox = new SqliteOutboxDeliveryQueue(aliceDatabase, aliceKey, aliceStore);
-
             var clock = new MutableTimeProvider(
                 DateTimeOffset.FromUnixTimeMilliseconds(1_786_114_000_000));
+            var aliceReliability = new SqliteIncomingMessageStore(aliceDatabase, aliceKey, aliceStore);
+            var bobReliability = new SqliteIncomingMessageStore(bobDatabase, bobKey, bobStore);
+            var aliceProcessor = new PeerMessageProcessor(aliceReliability, aliceReliability, clock);
+            var bobProcessor = new PeerMessageProcessor(bobReliability, bobReliability, clock);
+            var aliceOutbox = new SqliteOutboxDeliveryQueue(aliceDatabase, aliceKey, aliceStore);
+
             var aliceConversation = await aliceStore.GetOrCreateConversationAsync(bobIdentity.PeerId.Value);
             var outgoing = await aliceStore.QueueOutgoingTextAsync(
                 aliceConversation.ConversationId,
