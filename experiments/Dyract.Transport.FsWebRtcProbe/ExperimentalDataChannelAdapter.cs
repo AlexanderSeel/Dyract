@@ -82,8 +82,8 @@ public sealed class ExperimentalDataChannelAdapter : Java.Lang.Object, DataChann
                 return;
             }
 
-            var data = buffer.Data;
-            var remaining = data.Remaining;
+            var data = buffer.Data ?? throw new InvalidOperationException("Received DataChannel frame did not contain a native ByteBuffer.");
+            var remaining = data.Remaining();
             if (remaining is <= 0 or > MaximumExperimentalFrameBytes)
             {
                 ProtocolError?.Invoke(new InvalidOperationException("Received DataChannel frame has an invalid size."));
