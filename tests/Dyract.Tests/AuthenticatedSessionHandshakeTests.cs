@@ -22,13 +22,6 @@ public sealed class AuthenticatedSessionHandshakeTests
             bob.PeerId,
             bobPublicKey,
             SessionId);
-        using var responder = AuthenticatedSessionResponder.Accept(
-            bob,
-            alice.PeerId,
-            alicePublicKey,
-            initiator.HelloPacket,
-            SessionId).Keys;
-
         var response = AuthenticatedSessionResponder.Accept(
             bob,
             alice.PeerId,
@@ -41,7 +34,7 @@ public sealed class AuthenticatedSessionHandshakeTests
         Assert.Equal(initiatorKeys.ExportSendKey(), responderKeys.ExportReceiveKey());
         Assert.Equal(initiatorKeys.ExportReceiveKey(), responderKeys.ExportSendKey());
         Assert.Equal(initiatorKeys.ExportTranscriptHash(), responderKeys.ExportTranscriptHash());
-        Assert.NotEqual(initiatorKeys.ExportSendKey(), initiatorKeys.ExportReceiveKey());
+        Assert.False(initiatorKeys.ExportSendKey().SequenceEqual(initiatorKeys.ExportReceiveKey()));
     }
 
     [Fact]
