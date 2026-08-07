@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
 using Dyract.Protocol;
 using Xunit;
@@ -28,6 +27,7 @@ public sealed class PeerMessagingProtocolTests
         Assert.True(PeerMessagingProtocol.TryDecode(encoded, out var decoded, out var error), error);
         var text = Assert.IsType<PeerTextMessageFrame>(decoded);
         Assert.Equal(original, text);
+        Assert.Equal(text.CreatedAt, text.Timestamp);
         Assert.True(PeerMessagingProtocol.TryValidateForReceiver(
             text,
             bobIdentity.PeerId,
@@ -53,6 +53,7 @@ public sealed class PeerMessagingProtocolTests
         Assert.Equal(bobIdentity.PeerId, ack.SenderPeerId);
         Assert.Equal(aliceIdentity.PeerId, ack.RecipientPeerId);
         Assert.Equal(MessageId, ack.MessageId);
+        Assert.Equal(ack.DeliveredAt, ack.Timestamp);
 
         var encoded = PeerMessagingProtocol.Encode(ack);
         Assert.True(PeerMessagingProtocol.TryDecode(encoded, out var decoded, out var error), error);
@@ -79,8 +80,15 @@ public sealed class PeerMessagingProtocolTests
             malloryIdentity.PeerId,
             now,
             out _));
+
+        var futureFrame = new PeerTextMessageFrame(
+            MessageId,
+            aliceIdentity.PeerId,
+            bobIdentity.PeerId,
+            now.AddMinutes(3),
+            "hello");
         Assert.False(PeerMessagingProtocol.TryValidateForReceiver(
-            frame with { CreatedAt = now.AddMinutes(3), Timestamp = now.AddMinutes(3) },
+            futureFrame,
             bobIdentity.PeerId,
             aliceIdentity.PeerId,
             now,
@@ -124,7 +132,7 @@ public sealed class PeerMessagingProtocolTests
     }
 
     [Fact]
-    public void Encode_RejectsNonCanonicalMessageIdAndSelfRecipient()
+    public void Encode_RejectsNonCanonicalMessageIdSelfRecipientAndDefaultPeer()
     {
         using var aliceIdentity = PeerIdentity.Generate();
         using var bobIdentity = PeerIdentity.Generate();
@@ -140,6 +148,13 @@ public sealed class PeerMessagingProtocolTests
             MessageId,
             aliceIdentity.PeerId,
             aliceIdentity.PeerId,
+            DateTimeOffset.UtcNow,
+            "hello")));
+
+        Assert.Throws<ArgumentException>(() => PeerMessagingProtocol.Encode(new PeerTextMessageFrame(
+            MessageId,
+            default,
+            bobIdentity.PeerId,
             DateTimeOffset.UtcNow,
             "hello")));
     }
