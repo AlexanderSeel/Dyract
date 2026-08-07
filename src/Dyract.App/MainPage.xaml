@@ -93,7 +93,7 @@
                             <VerticalStackLayout Spacing="4">
                                 <Label FontAttributes="Bold" FontSize="17" Text="{Binding DisplayName}" />
                                 <Label FontFamily="monospace" FontSize="11" Text="{Binding ShortPeerId}" />
-                                <Label FontSize="10" Text="{Binding Capability, TargetNullValue='Identity pinned — pairing response still needed', FallbackValue='Identity pinned'}" />
+                                <Label FontSize="10" Text="{Binding PairingStatus}" />
                             </VerticalStackLayout>
                         </Border>
                     </DataTemplate>
