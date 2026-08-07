@@ -63,7 +63,7 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
 
         var description = await observer.Task.WaitAsync(cancellationToken);
         await SetLocalDescriptionAsync(description, cancellationToken);
-        return new ExperimentalSessionDescription("offer", description.Description);
+        return new ExperimentalSessionDescription("offer", RequireSdp(description));
     }
 
     public async Task<ExperimentalSessionDescription> CreateAnswerAsync(
@@ -76,7 +76,7 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
 
         var description = await observer.Task.WaitAsync(cancellationToken);
         await SetLocalDescriptionAsync(description, cancellationToken);
-        return new ExperimentalSessionDescription("answer", description.Description);
+        return new ExperimentalSessionDescription("answer", RequireSdp(description));
     }
 
     public async Task ApplyRemoteDescriptionAsync(
@@ -165,6 +165,10 @@ public sealed class FsWebRtcAndroidPeerSession : IAsyncDisposable
             return channel;
         }
     }
+
+    private static string RequireSdp(SessionDescription description)
+        => description.Description
+            ?? throw new InvalidOperationException("Native WebRTC returned an SDP description without text.");
 
     private void ThrowIfDisposed()
     {
