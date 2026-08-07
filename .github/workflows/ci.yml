@@ -35,6 +35,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Show validation snapshot
+        run: echo "Validating lost-first-ACK resend with one shared simulation clock"
+
       - name: Restore
         run: dotnet restore Dyract.slnx
 
