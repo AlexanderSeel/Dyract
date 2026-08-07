@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Dyract.Client;
 using Dyract.Core.Identity;
 using Dyract.Protocol;
@@ -40,6 +41,7 @@ public sealed class MainPage : ContentPage
     private ContactCapability? _remoteCapability;
     private HarnessPeerSignalingGateway? _gateway;
     private FsWebRtcDiagnosticConnection? _connection;
+    private AuthenticatedDiagnosticSession? _authenticatedSession;
     private CancellationTokenSource? _echoCancellation;
     private Task? _echoTask;
     private bool _initialized;
@@ -90,7 +92,7 @@ public sealed class MainPage : ContentPage
                     new Label { Text = "Dyract WebRTC physical-device harness", FontSize = 22, FontAttributes = FontAttributes.Bold },
                     new Label
                     {
-                        Text = "Experiment only. No chat messages are sent. Signaling uses normal Dyract signed/capability-protected endpoints; the DataChannel carries fixed binary diagnostic frames only."
+                        Text = "Experiment only. Signaling uses normal Dyract signed/capability-protected endpoints. After WebRTC/DataChannel setup, the diagnostic channel performs a pinned-identity signed ephemeral handshake and AES-GCM protects binary DYRT ping/pong frames."
                     },
                     Section("Local identity"),
                     _peerIdLabel,
@@ -277,7 +279,7 @@ public sealed class MainPage : ContentPage
             ParseStunUris(_stunEntry.Text));
 
         _connection = await controller.StartInitiatorAsync(remotePeerId);
-        SetStatus($"Offer sent. Session {_connection.SessionId}. Waiting for peer connection...");
+        SetStatus($"Offer sent. Session {_connection.SessionId}. Waiting for WebRTC peer connection...");
         AppendLog($"Initiator session {_connection.SessionId} started.");
 
         try
@@ -289,9 +291,13 @@ public sealed class MainPage : ContentPage
             throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
         }
 
-        _pingButton.IsEnabled = true;
-        SetStatus($"Connected. Session {_connection.SessionId}. Ping is ready.");
+        SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
         AppendLog("Native WebRTC connection reached Connected.");
+        await AuthenticateInitiatorAsync(_connection, remotePeerId);
+
+        _pingButton.IsEnabled = true;
+        SetStatus($"Authenticated session ready. Session {_connection.SessionId}. Ping is ready.");
+        AppendLog("DataChannel OPEN and Dyract identity-authenticated session established.");
     }
 
     private async Task StartResponderAsync()
@@ -321,29 +327,90 @@ public sealed class MainPage : ContentPage
             throw new TimeoutException("WebRTC did not reach Connected within 45 seconds.");
         }
 
+        SetStatus("WebRTC connected. Waiting for DataChannel OPEN and pinned-identity handshake...");
+        AppendLog("Native WebRTC connection reached Connected.");
+        await AuthenticateResponderAsync(_connection, remotePeerId);
+
         _echoCancellation = new CancellationTokenSource();
-        _echoTask = RunEchoLoopAsync(_connection, _echoCancellation.Token);
+        _echoTask = RunEchoLoopAsync(_authenticatedSession!, _echoCancellation.Token);
         _pingButton.IsEnabled = false;
-        SetStatus($"Connected as responder. Session {_connection.SessionId}. Echo loop active.");
-        AppendLog("Native WebRTC connection reached Connected; binary ping echo enabled.");
+        SetStatus($"Authenticated responder ready. Session {_connection.SessionId}. Encrypted echo loop active.");
+        AppendLog("DataChannel OPEN and Dyract identity-authenticated session established; encrypted ping echo enabled.");
+    }
+
+    private async Task AuthenticateInitiatorAsync(
+        FsWebRtcDiagnosticConnection connection,
+        PeerId remotePeerId)
+    {
+        var remotePublicKey = GetRemoteIdentityPublicKey();
+        try
+        {
+            using var identity = await _identityVault.GetOrCreateAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            _authenticatedSession = await AuthenticatedDiagnosticSession.InitiateAsync(
+                connection,
+                identity,
+                remotePeerId,
+                remotePublicKey,
+                timeout.Token);
+        }
+        catch
+        {
+            _authenticatedSession?.Dispose();
+            _authenticatedSession = null;
+            throw;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(remotePublicKey);
+        }
+    }
+
+    private async Task AuthenticateResponderAsync(
+        FsWebRtcDiagnosticConnection connection,
+        PeerId remotePeerId)
+    {
+        var remotePublicKey = GetRemoteIdentityPublicKey();
+        try
+        {
+            using var identity = await _identityVault.GetOrCreateAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            _authenticatedSession = await AuthenticatedDiagnosticSession.RespondAsync(
+                connection,
+                identity,
+                remotePeerId,
+                remotePublicKey,
+                timeout.Token);
+        }
+        catch
+        {
+            _authenticatedSession?.Dispose();
+            _authenticatedSession = null;
+            throw;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(remotePublicKey);
+        }
     }
 
     private async Task PingAsync()
     {
-        var connection = _connection ?? throw new InvalidOperationException("Start an initiator connection first.");
+        var authenticated = _authenticatedSession
+            ?? throw new InvalidOperationException("Establish the authenticated diagnostic session first.");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var elapsed = await connection.PingAsync(timeout.Token);
-        SetStatus($"Pong received in {elapsed.TotalMilliseconds:F1} ms.");
-        AppendLog($"Diagnostic binary frame RTT: {elapsed.TotalMilliseconds:F1} ms.");
+        var elapsed = await authenticated.PingAsync(timeout.Token);
+        SetStatus($"Authenticated pong received in {elapsed.TotalMilliseconds:F1} ms.");
+        AppendLog($"Authenticated encrypted DYRT frame RTT: {elapsed.TotalMilliseconds:F1} ms.");
     }
 
     private async Task RunEchoLoopAsync(
-        FsWebRtcDiagnosticConnection connection,
+        AuthenticatedDiagnosticSession authenticatedSession,
         CancellationToken cancellationToken)
     {
         try
         {
-            await connection.RunEchoResponderAsync(cancellationToken);
+            await authenticatedSession.RunEchoResponderAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -352,8 +419,8 @@ public sealed class MainPage : ContentPage
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                SetStatus($"Echo loop failed: {exception.Message}");
-                AppendLog("Responder echo loop stopped with an error.");
+                SetStatus($"Encrypted echo loop failed: {exception.Message}");
+                AppendLog("Authenticated responder echo loop stopped with an error.");
             });
         }
     }
@@ -367,36 +434,46 @@ public sealed class MainPage : ContentPage
         var remotePublicKey = Convert.FromBase64String(invitation.PublicKey);
         using var identity = await _identityVault.GetOrCreateAsync();
 
-        if (!ContactCapabilityVerifier.TryVerify(
-                capability,
-                remotePublicKey,
-                identity.PeerId.Value,
-                out var verificationError))
+        try
         {
-            throw new InvalidOperationException(
-                verificationError ?? "Remote pairing response is invalid or expired.");
-        }
+            if (!ContactCapabilityVerifier.TryVerify(
+                    capability,
+                    remotePublicKey,
+                    identity.PeerId.Value,
+                    out var verificationError))
+            {
+                throw new InvalidOperationException(
+                    verificationError ?? "Remote pairing response is invalid or expired.");
+            }
 
-        if (!PeerId.TryParse(invitation.PeerId, out var remotePeerId))
-        {
-            throw new InvalidOperationException("Pinned remote Peer ID is invalid.");
-        }
+            if (!PeerId.TryParse(invitation.PeerId, out var remotePeerId))
+            {
+                throw new InvalidOperationException("Pinned remote Peer ID is invalid.");
+            }
 
-        Preferences.Default.Set(DirectoryPreference, directory.AbsoluteUri);
-        return (
-            remotePeerId,
-            new HarnessPeerSignalingGateway(
-                directory,
-                _identityVault,
+            Preferences.Default.Set(DirectoryPreference, directory.AbsoluteUri);
+            return (
                 remotePeerId,
-                remotePublicKey,
-                capability));
+                new HarnessPeerSignalingGateway(
+                    directory,
+                    _identityVault,
+                    remotePeerId,
+                    remotePublicKey,
+                    capability));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(remotePublicKey);
+        }
     }
 
     private async Task CloseConnectionAsync()
     {
         _pingButton.IsEnabled = false;
         _echoCancellation?.Cancel();
+
+        _authenticatedSession?.Dispose();
+        _authenticatedSession = null;
 
         if (_connection is not null)
         {
@@ -421,6 +498,19 @@ public sealed class MainPage : ContentPage
         _gateway?.Dispose();
         _gateway = null;
         SetStatus("Connection closed.");
+    }
+
+    private byte[] GetRemoteIdentityPublicKey()
+    {
+        var invitation = RequireRemoteInvitation();
+        try
+        {
+            return Convert.FromBase64String(invitation.PublicKey);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidOperationException("Pinned remote identity public key is invalid.", exception);
+        }
     }
 
     private async Task<string> ReadStoredPairingResponseAsync()
