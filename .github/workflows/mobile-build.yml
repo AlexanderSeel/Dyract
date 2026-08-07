@@ -46,6 +46,9 @@ jobs:
       - name: Show .NET environment
         run: dotnet --info
 
+      - name: Show validation snapshot
+        run: echo "Validating privacy-safe selected ICE path diagnostics in Android dependency graph"
+
       - name: Install MAUI Android workload
         run: dotnet workload install maui-android
 
