@@ -54,7 +54,7 @@ public sealed class DirectoryTelemetryMiddleware
         Record(operation, statusCode, started);
     }
 
-    internal static string ClassifyOperation(PathString path)
+    public static string ClassifyOperation(PathString path)
     {
         if (path == new PathString("/health"))
         {
