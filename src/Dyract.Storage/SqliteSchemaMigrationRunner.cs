@@ -34,7 +34,7 @@ public sealed class SqliteSchemaMigrationRunner
     {
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
 
         await ExecuteAsync(connection, transaction, """
             CREATE TABLE IF NOT EXISTS schema_migrations (
