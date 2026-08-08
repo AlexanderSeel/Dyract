@@ -1,4 +1,3 @@
-using System.Formats.Asn1;
 using System.Security.Cryptography;
 using Android.Security.Keystore;
 using Dyract.Core.Identity;
@@ -24,7 +23,6 @@ public sealed class AndroidKeystoreIdentitySigner : IPeerIdentitySigner, IDispos
     private const string ProviderName = "AndroidKeyStore";
     private const string SignatureAlgorithm = "SHA256withECDSA";
     private const string CurveName = "secp256r1";
-    private const int CoordinateLength = 32;
 
     private readonly string _alias;
     private readonly KeyStore _keyStore;
@@ -109,7 +107,7 @@ public sealed class AndroidKeystoreIdentitySigner : IPeerIdentitySigner, IDispos
                     ?? throw new CryptographicException("AndroidKeyStore returned an empty identity signature.");
                 try
                 {
-                    return ConvertDerEcdsaToP1363(derSignature);
+                    return EcdsaSignatureEncoding.DerToP256P1363(derSignature);
                 }
                 finally
                 {
@@ -152,49 +150,6 @@ public sealed class AndroidKeystoreIdentitySigner : IPeerIdentitySigner, IDispos
                 throw new CryptographicException("AndroidKeyStore failed to generate the Dyract identity key pair.");
             }
         }
-    }
-
-    internal static byte[] ConvertDerEcdsaToP1363(ReadOnlySpan<byte> derSignature)
-    {
-        if (derSignature.IsEmpty)
-        {
-            throw new CryptographicException("ECDSA signature must not be empty.");
-        }
-
-        try
-        {
-            var reader = new AsnReader(derSignature.ToArray(), AsnEncodingRules.DER);
-            var sequence = reader.ReadSequence();
-            var r = sequence.ReadInteger();
-            var s = sequence.ReadInteger();
-            sequence.ThrowIfNotEmpty();
-            reader.ThrowIfNotEmpty();
-
-            if (r.Sign <= 0 || s.Sign <= 0)
-            {
-                throw new CryptographicException("ECDSA signature integers must be positive.");
-            }
-
-            var output = new byte[CoordinateLength * 2];
-            WriteCoordinate(r.ToByteArray(isUnsigned: true, isBigEndian: true), output.AsSpan(0, CoordinateLength));
-            WriteCoordinate(s.ToByteArray(isUnsigned: true, isBigEndian: true), output.AsSpan(CoordinateLength, CoordinateLength));
-            return output;
-        }
-        catch (AsnContentException exception)
-        {
-            throw new CryptographicException("Android ECDSA signature is not canonical DER.", exception);
-        }
-    }
-
-    private static void WriteCoordinate(ReadOnlySpan<byte> integer, Span<byte> destination)
-    {
-        if (integer.IsEmpty || integer.Length > destination.Length)
-        {
-            throw new CryptographicException("ECDSA signature coordinate is outside the P-256 range.");
-        }
-
-        destination.Clear();
-        integer.CopyTo(destination[^integer.Length..]);
     }
 
     private void ThrowIfDisposed()
