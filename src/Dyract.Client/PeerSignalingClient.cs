@@ -16,7 +16,7 @@ public sealed class PeerSignalingClient
     }
 
     public async Task<SendPeerSignalResponse> SendAsync(
-        PeerIdentity sender,
+        IPeerIdentitySigner sender,
         string targetPeerId,
         ContactCapability capability,
         string sessionId,
@@ -71,7 +71,7 @@ public sealed class PeerSignalingClient
     }
 
     public async Task<FetchPeerSignalsResponse> FetchAsync(
-        PeerIdentity identity,
+        IPeerIdentitySigner identity,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -91,7 +91,7 @@ public sealed class PeerSignalingClient
     }
 
     public async Task AckAsync(
-        PeerIdentity identity,
+        IPeerIdentitySigner identity,
         IEnumerable<string> signalIds,
         CancellationToken cancellationToken = default)
     {
