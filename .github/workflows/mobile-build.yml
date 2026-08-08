@@ -16,6 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
 
+# Validation marker: QR scanner/display plus migrating local-store DI.
 concurrency:
   group: mobile-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
