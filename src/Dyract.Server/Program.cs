@@ -42,6 +42,7 @@ else
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
 if (string.IsNullOrWhiteSpace(redisConnectionString))
 {
+    builder.Services.AddSingleton<IRegistrationChallengeStore, RegistrationChallengeStore>();
     builder.Services.AddSingleton<IPresenceStore, PresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, ReplayNonceStore>();
     builder.Services.AddSingleton<ISignalStore, SignalStore>();
@@ -52,13 +53,13 @@ else
     redisOptions.AbortOnConnectFail = true;
     redisOptions.ClientName = "dyract-directory";
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
+    builder.Services.AddSingleton<IRegistrationChallengeStore, RedisRegistrationChallengeStore>();
     builder.Services.AddSingleton<IPresenceStore, RedisPresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, RedisReplayNonceStore>();
     builder.Services.AddSingleton<ISignalStore, RedisSignalStore>();
     builder.Services.AddHostedService<RedisTransientStateInitializer>();
 }
 
-builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 builder.Services.AddRateLimiter(options =>
@@ -142,10 +143,11 @@ api.MapPeerSignaling();
 
 app.Run();
 
-static IResult CreateRegistrationChallenge(
+static async Task<IResult> CreateRegistrationChallenge(
     RegistrationChallengeRequest request,
-    RegistrationChallengeStore challenges,
-    TimeProvider timeProvider)
+    IRegistrationChallengeStore challenges,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
 {
     if (!TryDecodeBase64(request.PublicKey, 4096, out var publicKey) ||
         !SignatureVerifier.IsValidIdentityPublicKey(publicKey))
@@ -154,7 +156,7 @@ static IResult CreateRegistrationChallenge(
     }
 
     var peerId = PeerId.FromPublicKey(publicKey);
-    var challenge = challenges.Create(peerId, publicKey, timeProvider.GetUtcNow());
+    var challenge = await challenges.CreateAsync(peerId, publicKey, timeProvider.GetUtcNow(), cancellationToken);
 
     return Results.Ok(new RegistrationChallengeResponse(
         peerId.Value,
@@ -165,7 +167,7 @@ static IResult CreateRegistrationChallenge(
 
 static async Task<IResult> RegisterPeer(
     RegisterPeerRequest request,
-    RegistrationChallengeStore challenges,
+    IRegistrationChallengeStore challenges,
     IIdentityStore identities,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
@@ -188,7 +190,8 @@ static async Task<IResult> RegisterPeer(
 
     var now = timeProvider.GetUtcNow();
 
-    if (!challenges.TryGet(request.ChallengeId, now, out var challenge))
+    var challenge = await challenges.GetAsync(request.ChallengeId, now, cancellationToken);
+    if (challenge is null)
     {
         return Results.Json(
             new ApiError("challenge_invalid", "Registration challenge is unknown or expired."),
@@ -223,7 +226,7 @@ static async Task<IResult> RegisterPeer(
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    if (!challenges.TryConsume(challenge.Id))
+    if (!await challenges.TryConsumeAsync(challenge.Id, cancellationToken))
     {
         return Results.Conflict(new ApiError("challenge_consumed", "Registration challenge has already been consumed."));
     }
