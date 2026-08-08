@@ -3,27 +3,45 @@ using Dyract.Core.Identity;
 
 namespace Dyract.Server.Services;
 
+public interface ICapabilityRevocationStore
+{
+    ValueTask<CapabilityRevocationResult> RevokeAsync(
+        PeerId issuer,
+        string capabilityId,
+        DateTimeOffset expiresAt,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> IsRevokedAsync(
+        PeerId issuer,
+        string capabilityId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
-/// Ephemeral pre-expiry capability revocations. The store deliberately keeps no grantee/contact
+/// In-memory development/test implementation. It deliberately keeps no grantee/contact
 /// relationship: only issuer PeerId + opaque capability ID + natural expiry are retained.
 /// </summary>
-public sealed class CapabilityRevocationStore
+public sealed class CapabilityRevocationStore : ICapabilityRevocationStore
 {
     public const int MaximumActiveRevocationsPerIssuer = 512;
 
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, DateTimeOffset>> _byIssuer =
         new(StringComparer.Ordinal);
 
-    public CapabilityRevocationResult Revoke(
+    public ValueTask<CapabilityRevocationResult> RevokeAsync(
         PeerId issuer,
         string capabilityId,
         DateTimeOffset expiresAt,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilityId);
         if (expiresAt <= now)
         {
-            return CapabilityRevocationResult.Expired;
+            return ValueTask.FromResult(CapabilityRevocationResult.Expired);
         }
 
         var issuerRevocations = _byIssuer.GetOrAdd(
@@ -39,30 +57,37 @@ public sealed class CapabilityRevocationStore
                 issuerRevocations[capabilityId] = expiresAt;
             }
 
-            return CapabilityRevocationResult.AlreadyRevoked;
+            return ValueTask.FromResult(CapabilityRevocationResult.AlreadyRevoked);
         }
 
         if (issuerRevocations.Count >= MaximumActiveRevocationsPerIssuer)
         {
-            return CapabilityRevocationResult.CapacityExceeded;
+            return ValueTask.FromResult(CapabilityRevocationResult.CapacityExceeded);
         }
 
-        return issuerRevocations.TryAdd(capabilityId, expiresAt)
-            ? CapabilityRevocationResult.Revoked
-            : CapabilityRevocationResult.AlreadyRevoked;
+        return ValueTask.FromResult(
+            issuerRevocations.TryAdd(capabilityId, expiresAt)
+                ? CapabilityRevocationResult.Revoked
+                : CapabilityRevocationResult.AlreadyRevoked);
     }
 
-    public bool IsRevoked(PeerId issuer, string capabilityId, DateTimeOffset now)
+    public ValueTask<bool> IsRevokedAsync(
+        PeerId issuer,
+        string capabilityId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilityId);
 
         if (!_byIssuer.TryGetValue(issuer.Value, out var issuerRevocations))
         {
-            return false;
+            return ValueTask.FromResult(false);
         }
 
         RemoveExpired(issuerRevocations, now);
-        return issuerRevocations.TryGetValue(capabilityId, out var expiresAt) && expiresAt > now;
+        return ValueTask.FromResult(
+            issuerRevocations.TryGetValue(capabilityId, out var expiresAt) && expiresAt > now);
     }
 
     public int CountActive(PeerId issuer, DateTimeOffset now)
