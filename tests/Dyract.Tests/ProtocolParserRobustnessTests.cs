@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
@@ -11,6 +12,7 @@ public sealed class ProtocolParserRobustnessTests
 {
     private const string ContactPrefix = "dyract://contact/v1/";
     private const string PairingPrefix = "dyract://pair/v1/";
+    private const string SessionId = "0123456789abcdef0123456789abcdef";
 
     [Fact]
     public void ContactInvitation_RoundTripRemainsValid()
@@ -141,8 +143,11 @@ public sealed class ProtocolParserRobustnessTests
     }
 
     [Fact]
-    public void SessionHelloParsers_RandomBinaryInputsNeverThrow()
+    public void SessionHandshake_RandomBinaryInputsFailClosedWithoutUnexpectedExceptions()
     {
+        using var alice = PeerIdentity.Generate();
+        using var bob = PeerIdentity.Generate();
+        var alicePublicKey = alice.ExportPublicKey();
         var random = new Random(0x53455353);
 
         for (var iteration = 0; iteration < 10_000; iteration++)
@@ -150,8 +155,25 @@ public sealed class ProtocolParserRobustnessTests
             var bytes = new byte[random.Next(0, 40_000)];
             random.NextBytes(bytes);
 
-            _ = AuthenticatedSessionHandshake.TryDecodeClientHello(bytes, out _);
-            _ = AuthenticatedSessionHandshake.TryDecodeServerHello(bytes, out _);
+            try
+            {
+                var accepted = AuthenticatedSessionResponder.Accept(
+                    bob,
+                    alice.PeerId,
+                    alicePublicKey,
+                    bytes,
+                    SessionId);
+                accepted.Keys.Dispose();
+                Assert.Fail("Random session handshake bytes were unexpectedly authenticated.");
+            }
+            catch (CryptographicException)
+            {
+                // Expected fail-closed parser/authentication result.
+            }
+            catch (ArgumentException)
+            {
+                // Expected bounds/format rejection.
+            }
         }
     }
 }
