@@ -9,6 +9,7 @@ on:
     branches:
       - main
 
+# Validation marker: final mobile warning cleanup plus SQLitePCLRaw 3.0.5.
 concurrency:
   group: core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
