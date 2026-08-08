@@ -3,6 +3,7 @@ using Dyract.App.Security;
 using Dyract.Client;
 using Dyract.Storage;
 using Dyract.Transport;
+using ZXing.Net.Maui.Controls;
 
 namespace Dyract.App;
 
@@ -12,7 +13,10 @@ public static class MauiProgram
     {
         var builder = MauiApp.CreateBuilder();
 
-        builder.UseMauiApp<App>();
+        builder
+            .UseMauiApp<App>()
+            .UseBarcodeReader();
+
         builder.Services.AddSingleton<IIdentityVault, SecureIdentityVault>();
         builder.Services.AddSingleton<ILocalEncryptionKeyProvider, SecureLocalEncryptionKeyProvider>();
         builder.Services.AddSingleton<ILocalStore>(services =>
