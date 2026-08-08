@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Dyract.Protocol;
 using Dyract.Server;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -77,7 +78,7 @@ public sealed class DirectoryTelemetryTests
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => enabled && logLevel >= LogLevel.Information;
+        public bool IsEnabled(LogLevel logLevel) => enabled && logLevel != LogLevel.None;
 
         public void Log<TState>(
             LogLevel logLevel,
