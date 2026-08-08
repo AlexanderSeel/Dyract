@@ -238,7 +238,7 @@ public partial class ConversationPage : ContentPage
             return;
         }
 
-        var confirmed = await DisplayAlert(
+        var confirmed = await DisplayAlertAsync(
             "Revoke reachability grant?",
             $"This will stop {_contact.DisplayName} from using the currently tracked capability to resolve or signal you. It will not delete the contact or remove their grant to you.",
             "Revoke",
