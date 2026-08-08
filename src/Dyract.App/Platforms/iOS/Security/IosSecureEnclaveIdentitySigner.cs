@@ -139,7 +139,7 @@ public sealed class IosSecureEnclaveIdentitySigner : IPeerIdentitySigner, IDispo
 
     private static SecKey Generate(NSData applicationTag)
     {
-        using var parameters = new SecKeyGenerationParameters
+        var parameters = new SecKeyGenerationParameters
         {
             KeyType = SecKeyType.ECSecPrimeRandom,
             KeySizeInBits = KeySizeBits,
