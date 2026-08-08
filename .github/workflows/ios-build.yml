@@ -16,6 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/ios-build.yml'
 
+# Validation marker: first real .NET 10 MAUI iOS simulator build.
 concurrency:
   group: ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
