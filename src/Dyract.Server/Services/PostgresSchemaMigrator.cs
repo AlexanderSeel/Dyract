@@ -98,6 +98,12 @@ public sealed class PostgresSchemaMigrator
             throw new InvalidOperationException("PostgreSQL schema migration history is incomplete.");
         }
 
+        // Validate the final physical schema on every startup, not only when a migration
+        // is first recorded. This catches manual drift/corruption behind an otherwise
+        // apparently complete migration ledger and fails closed before serving requests.
+        await ValidatePeerIdentitySchemaAsync(connection, transaction, cancellationToken);
+        await ValidateCapabilityRevocationSchemaAsync(connection, transaction, cancellationToken);
+
         await transaction.CommitAsync(cancellationToken);
     }
 
