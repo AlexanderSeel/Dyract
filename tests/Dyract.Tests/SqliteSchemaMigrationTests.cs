@@ -8,7 +8,7 @@ namespace Dyract.Tests;
 public sealed class SqliteSchemaMigrationTests
 {
     [Fact]
-    public async Task NewMigratingStore_RecordsBaselineMigrationExactlyOnce()
+    public async Task NewMigratingStore_RecordsAllMigrationsExactlyOnce()
     {
         var databasePath = CreateDatabasePath();
         try
@@ -18,9 +18,20 @@ public sealed class SqliteSchemaMigrationTests
             await store.InitializeAsync();
 
             var migrations = await ReadMigrationsAsync(databasePath);
-            var migration = Assert.Single(migrations);
-            Assert.Equal(1, migration.Version);
-            Assert.Equal("baseline-v1", migration.Name);
+            Assert.Collection(
+                migrations,
+                migration =>
+                {
+                    Assert.Equal(1, migration.Version);
+                    Assert.Equal("baseline-v1", migration.Name);
+                },
+                migration =>
+                {
+                    Assert.Equal(2, migration.Version);
+                    Assert.Equal("track-issued-contact-capability", migration.Name);
+                });
+
+            Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
         }
         finally
         {
@@ -29,7 +40,7 @@ public sealed class SqliteSchemaMigrationTests
     }
 
     [Fact]
-    public async Task ExistingV1Database_IsAdoptedWithoutLosingEncryptedData()
+    public async Task ExistingV1Database_IsUpgradedToV2WithoutLosingEncryptedData()
     {
         var databasePath = CreateDatabasePath();
         try
@@ -44,16 +55,18 @@ public sealed class SqliteSchemaMigrationTests
                 contactIdentity.ExportPublicKey(),
                 "Existing encrypted contact"));
 
+            Assert.False(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
+
             var migratingStore = new MigratingLocalStore(databasePath, keyProvider);
             await migratingStore.InitializeAsync();
 
             var contact = await migratingStore.GetContactAsync(contactIdentity.PeerId.Value);
             Assert.NotNull(contact);
             Assert.Equal("Existing encrypted contact", contact.DisplayName);
+            Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
 
-            var migration = Assert.Single(await ReadMigrationsAsync(databasePath));
-            Assert.Equal(1, migration.Version);
-            Assert.Equal("baseline-v1", migration.Name);
+            var migrations = await ReadMigrationsAsync(databasePath);
+            Assert.Equal([1, 2], migrations.Select(value => value.Version).ToArray());
         }
         finally
         {
@@ -134,6 +147,27 @@ public sealed class SqliteSchemaMigrationTests
         }
 
         return result;
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        string databasePath,
+        string table,
+        string column)
+    {
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({table});";
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string CreateDatabasePath()
