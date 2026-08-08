@@ -9,6 +9,7 @@ on:
     branches:
       - main
 
+# Validation marker: QR onboarding plus formal SQLite migration ledger/tests.
 concurrency:
   group: core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
