@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="Dyract.App.SecurityPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Security &amp; recovery">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="18">
+            <Label
+                FontAttributes="Bold"
+                FontSize="28"
+                Text="Security &amp; recovery" />
+
+            <Label
+                FontSize="13"
+                Text="This screen describes the protection state of this installation. Dyract does not silently create a replacement identity or upload private recovery material to the directory." />
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label FontAttributes="Bold" Text="Identity" />
+                    <Label FontSize="12" Text="Peer ID" />
+                    <Label
+                        x:Name="PeerIdLabel"
+                        FontFamily="monospace"
+                        FontSize="12"
+                        LineBreakMode="CharacterWrap" />
+                    <Label FontSize="12" Text="Security fingerprint" />
+                    <Label
+                        x:Name="FingerprintLabel"
+                        FontFamily="monospace"
+                        FontSize="12"
+                        LineBreakMode="CharacterWrap" />
+                    <Button
+                        Clicked="OnCopyFingerprintClicked"
+                        Text="Copy fingerprint" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label FontAttributes="Bold" Text="Identity protection" />
+                    <Label Text="Platform SecureStorage: active" />
+                    <Label
+                        FontSize="12"
+                        Text="Android uses the platform SecureStorage/Keystore path and iOS uses Keychain. The current Dyract identity implementation still imports exportable PKCS#8 key material into the app process; hardware-non-exportable identity keys are not implemented yet." />
+                    <Label
+                        FontSize="12"
+                        Text="If an initialized secure identity becomes unreadable, Dyract fails closed instead of silently generating a new Peer ID." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label FontAttributes="Bold" Text="Recovery" />
+                    <Label FontAttributes="Bold" Text="Recovery configured: No" />
+                    <Label
+                        FontSize="12"
+                        Text="There is currently no Dyract cloud private-key backup, no recovery phrase, and no server-side message-history backup. Losing this device without future recovery material means losing this identity and its local history." />
+                    <Label
+                        FontSize="12"
+                        Text="A reinstall without an explicit future recovery flow is treated as a new installation with a new identity." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label FontAttributes="Bold" Text="Device loss" />
+                    <Label
+                        FontSize="12"
+                        Text="A locked lost device relies primarily on the operating system's device-lock and secure-storage protections. A stolen unlocked, rooted, jailbroken, or otherwise fully controlled device must be treated as an endpoint compromise." />
+                    <Label
+                        FontSize="12"
+                        Text="The current single-device identity has no independent remote-revocation credential. Adding one requires a separately reviewed recovery or multi-device trust design." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16" StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="14" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label FontAttributes="Bold" Text="Export, restore and reset" />
+                    <Label
+                        FontSize="12"
+                        Text="Private-key export, identity restore and destructive identity reset are intentionally unavailable in this build. They will only be enabled after Dyract has a versioned authenticated recovery container, reviewed key derivation, and atomic reset semantics for identity, local-data key, database, capabilities and future push state." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label
+                FontSize="11"
+                Text="This is implementation status, not an independent mobile secure-storage audit. See docs/device-compromise-recovery.md for the engineering threat analysis." />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
