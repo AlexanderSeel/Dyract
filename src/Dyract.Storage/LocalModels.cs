@@ -24,15 +24,13 @@ public sealed record ContactDraft(
     string PeerId,
     byte[] IdentityPublicKey,
     string DisplayName,
-    string? Capability = null,
-    string? GrantedCapability = null);
+    string? Capability = null);
 
 public sealed record LocalContact(
     string PeerId,
     byte[] IdentityPublicKey,
     string DisplayName,
     string? Capability,
-    string? GrantedCapability,
     DateTimeOffset AddedAt,
     DateTimeOffset UpdatedAt)
 {
