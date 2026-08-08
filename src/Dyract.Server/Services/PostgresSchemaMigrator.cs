@@ -230,10 +230,10 @@ public sealed class PostgresSchemaInitializer : IHostedService
     private readonly ILogger<PostgresSchemaInitializer> _logger;
 
     public PostgresSchemaInitializer(
-        PostgresSchemaMigrator migrator,
+        NpgsqlDataSource dataSource,
         ILogger<PostgresSchemaInitializer> logger)
     {
-        _migrator = migrator ?? throw new ArgumentNullException(nameof(migrator));
+        _migrator = new PostgresSchemaMigrator(dataSource);
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
