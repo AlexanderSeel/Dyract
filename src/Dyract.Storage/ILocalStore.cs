@@ -68,6 +68,26 @@ public interface IOutgoingDeliveryStore
         CancellationToken cancellationToken = default);
 }
 
+public interface IIncomingReadStore
+{
+    Task<bool> MarkIncomingReadAsync(
+        string messageId,
+        string readerPeerId,
+        string senderPeerId,
+        DateTimeOffset readAt,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IOutgoingReadStore
+{
+    Task<bool> MarkOutgoingReadAsync(
+        string messageId,
+        string senderPeerId,
+        string readerPeerId,
+        DateTimeOffset readAt,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IOutboxDeliveryQueue
 {
     Task<IReadOnlyList<DueOutboxMessage>> GetDueOutboxAsync(
