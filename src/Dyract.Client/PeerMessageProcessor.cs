@@ -29,6 +29,18 @@ public sealed class PeerMessageProcessor
     public PeerMessageProcessor(
         IIncomingMessageStore incomingStore,
         IOutgoingDeliveryStore outgoingDeliveryStore,
+        TimeProvider? timeProvider = null)
+        : this(
+            incomingStore,
+            outgoingDeliveryStore,
+            NoOpOutgoingReadStore.Instance,
+            timeProvider)
+    {
+    }
+
+    public PeerMessageProcessor(
+        IIncomingMessageStore incomingStore,
+        IOutgoingDeliveryStore outgoingDeliveryStore,
         IOutgoingReadStore outgoingReadStore,
         TimeProvider? timeProvider = null)
     {
@@ -156,5 +168,18 @@ public sealed class PeerMessageProcessor
                 ? PeerMessageProcessingKind.ReadAcknowledged
                 : PeerMessageProcessingKind.ReadAckUnknown,
             ack.MessageId);
+    }
+
+    private sealed class NoOpOutgoingReadStore : IOutgoingReadStore
+    {
+        public static readonly NoOpOutgoingReadStore Instance = new();
+
+        public Task<bool> MarkOutgoingReadAsync(
+            string messageId,
+            string senderPeerId,
+            string readerPeerId,
+            DateTimeOffset readAt,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 }
