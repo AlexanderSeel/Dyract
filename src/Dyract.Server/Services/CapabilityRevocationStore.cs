@@ -30,7 +30,7 @@ public sealed class CapabilityRevocationStore
             issuer.Value,
             static _ => new ConcurrentDictionary<string, DateTimeOffset>(StringComparer.Ordinal));
 
-        RemoveExpired(issuer.Value, issuerRevocations, now);
+        RemoveExpired(issuerRevocations, now);
 
         if (issuerRevocations.TryGetValue(capabilityId, out var existing))
         {
@@ -61,7 +61,7 @@ public sealed class CapabilityRevocationStore
             return false;
         }
 
-        RemoveExpired(issuer.Value, issuerRevocations, now);
+        RemoveExpired(issuerRevocations, now);
         return issuerRevocations.TryGetValue(capabilityId, out var expiresAt) && expiresAt > now;
     }
 
@@ -72,12 +72,11 @@ public sealed class CapabilityRevocationStore
             return 0;
         }
 
-        RemoveExpired(issuer.Value, issuerRevocations, now);
+        RemoveExpired(issuerRevocations, now);
         return issuerRevocations.Count;
     }
 
-    private void RemoveExpired(
-        string issuerPeerId,
+    private static void RemoveExpired(
         ConcurrentDictionary<string, DateTimeOffset> issuerRevocations,
         DateTimeOffset now)
     {
@@ -87,14 +86,6 @@ public sealed class CapabilityRevocationStore
             {
                 issuerRevocations.TryRemove(entry.Key, out _);
             }
-        }
-
-        if (issuerRevocations.IsEmpty)
-        {
-            _byIssuer.TryRemove(
-                new KeyValuePair<string, ConcurrentDictionary<string, DateTimeOffset>>(
-                    issuerPeerId,
-                    issuerRevocations));
         }
     }
 }
