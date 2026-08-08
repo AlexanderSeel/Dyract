@@ -27,7 +27,7 @@ public static class SignalingEndpoints
     private static async Task<IResult> SendSignal(
         SendPeerSignalRequest request,
         IIdentityStore identities,
-        ReplayNonceStore replayNonces,
+        IReplayNonceStore replayNonces,
         SignalStore signals,
         ICapabilityRevocationStore revocations,
         TimeProvider timeProvider,
@@ -137,7 +137,7 @@ public static class SignalingEndpoints
             return capabilityError;
         }
 
-        if (!replayNonces.TryAccept(senderId, request.Nonce, now))
+        if (!await replayNonces.TryAcceptAsync(senderId, request.Nonce, now, cancellationToken))
         {
             return Unauthorized("replay_detected", "This signed signal nonce has already been used.");
         }
@@ -165,7 +165,7 @@ public static class SignalingEndpoints
     private static async Task<IResult> FetchSignals(
         FetchPeerSignalsRequest request,
         IIdentityStore identities,
-        ReplayNonceStore replayNonces,
+        IReplayNonceStore replayNonces,
         SignalStore signals,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -198,7 +198,7 @@ public static class SignalingEndpoints
             return Unauthorized("signature_invalid", "Signal fetch signature could not be verified.");
         }
 
-        if (!replayNonces.TryAccept(peerId, request.Nonce, now))
+        if (!await replayNonces.TryAcceptAsync(peerId, request.Nonce, now, cancellationToken))
         {
             return Unauthorized("replay_detected", "This signed signal fetch nonce has already been used.");
         }
@@ -220,7 +220,7 @@ public static class SignalingEndpoints
     private static async Task<IResult> AckSignals(
         AckPeerSignalsRequest request,
         IIdentityStore identities,
-        ReplayNonceStore replayNonces,
+        IReplayNonceStore replayNonces,
         SignalStore signals,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -273,7 +273,7 @@ public static class SignalingEndpoints
             return Unauthorized("signature_invalid", "Signal acknowledgement signature could not be verified.");
         }
 
-        if (!replayNonces.TryAccept(peerId, request.Nonce, now))
+        if (!await replayNonces.TryAcceptAsync(peerId, request.Nonce, now, cancellationToken))
         {
             return Unauthorized("replay_detected", "This signed signal acknowledgement nonce has already been used.");
         }
