@@ -17,7 +17,7 @@ public sealed class DirectoryClient
     }
 
     public async Task<RegisterPeerResponse> RegisterAsync(
-        PeerIdentity identity,
+        IPeerIdentitySigner identity,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -52,7 +52,7 @@ public sealed class DirectoryClient
     }
 
     public async Task<PeerLookupResponse> LookupAsync(
-        PeerIdentity requester,
+        IPeerIdentitySigner requester,
         string targetPeerId,
         CancellationToken cancellationToken = default)
     {
@@ -81,7 +81,7 @@ public sealed class DirectoryClient
     }
 
     public async Task<PublishPresenceResponse> PublishPresenceAsync(
-        PeerIdentity identity,
+        IPeerIdentitySigner identity,
         IEnumerable<ConnectionCandidate> candidates,
         TimeSpan? lifetime = null,
         CancellationToken cancellationToken = default)
@@ -127,7 +127,7 @@ public sealed class DirectoryClient
     }
 
     public async Task RemovePresenceAsync(
-        PeerIdentity identity,
+        IPeerIdentitySigner identity,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -148,7 +148,7 @@ public sealed class DirectoryClient
     }
 
     public async Task RevokeContactCapabilityAsync(
-        PeerIdentity issuer,
+        IPeerIdentitySigner issuer,
         ContactCapability capability,
         CancellationToken cancellationToken = default)
     {
@@ -197,7 +197,7 @@ public sealed class DirectoryClient
     }
 
     public async Task<ResolvePeerResponse> ResolveAsync(
-        PeerIdentity requester,
+        IPeerIdentitySigner requester,
         string targetPeerId,
         ContactCapability capability,
         CancellationToken cancellationToken = default)
