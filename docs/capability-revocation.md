@@ -108,7 +108,7 @@ Revocation is idempotent. Repeating a correctly signed revocation for the same c
 
 ## Server-side metadata boundary
 
-The prototype revocation store deliberately records only:
+Revocation state deliberately records only:
 
 ```text
 issuer PeerId
@@ -118,11 +118,33 @@ natural expiry
 
 It does **not** record the grantee PeerId.
 
-Therefore the revocation store does not become a server-side contact/friendship graph. The grantee remains cryptographically embedded in the capability held by the peer, but is not copied into the revocation state.
+Therefore the revocation store does not become a server-side contact/friendship graph. The grantee remains cryptographically embedded in the capability held by the peer, but is not copied into revocation state.
 
-Revoked IDs are removed after their natural expiry. The prototype also caps active revoked IDs at 512 per issuer to bound memory/abuse.
+Revoked IDs cease to authorize after their natural expiry. The store also caps active revoked IDs at 512 per issuer as a prototype abuse bound.
 
-Current implementation is in-memory and therefore single-instance prototype state. Before horizontal production deployment, revocations must move to the same TTL-capable distributed state strategy as presence/replay/signaling, for example Redis, while preserving the no-grantee storage rule.
+### PostgreSQL-backed directory
+
+When `ConnectionStrings:Dyract` is configured, Dyract uses `PostgresCapabilityRevocationStore`. Revocations are persisted by PostgreSQL migration v2 in:
+
+```text
+capability_revocation
+```
+
+with only:
+
+```text
+issuer_peer_id
+capability_id
+expires_at
+```
+
+A successful revoke is committed before the HTTP endpoint returns success. Both resolve and signaling authorization read the durable store, so a server process restart does not resurrect a revoked capability. Multiple directory instances sharing the same PostgreSQL database observe the same revocation state without a per-process cache.
+
+Expired rows are opportunistically removed for the issuer during later revoke operations. Per-issuer capacity checks are serialized with a PostgreSQL advisory transaction lock.
+
+### Zero-config development
+
+Without a PostgreSQL connection string, Dyract uses the in-memory `CapabilityRevocationStore`. That mode is intentionally for local development/tests and does not survive process restart.
 
 ## Authorization behavior
 
@@ -168,6 +190,19 @@ only when:
 After a successful server revocation, the locally encrypted issued-capability value is cleared. The next pairing QR/copy operation creates a new capability ID.
 
 If revocation fails, the local capability is retained so the user can retry; Dyract does not pretend the remote peer lost access when the directory did not confirm revocation.
+
+## Validation coverage
+
+The PostgreSQL integration suite proves that:
+
+- migration v2 creates the metadata-minimized revocation table;
+- no grantee column is present;
+- a revocation created by one store instance is visible to a fresh store instance;
+- natural expiry stops the row from being considered active;
+- malformed revocation schemas are rejected before migration v2 is recorded;
+- later schema drift is rejected even when the migration ledger already reports v2 complete.
+
+The normal ASP.NET integration suite separately proves that revoked capabilities cannot use resolve or signaling and that a replacement capability with a new ID remains usable.
 
 ## Security boundary
 
