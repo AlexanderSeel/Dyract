@@ -16,6 +16,7 @@ public partial class MainPage : ContentPage
     private string? _contactInvitation;
     private bool _initialized;
     private bool _busy;
+    private bool _scanning;
     private bool _directoryBusy;
 
     public MainPage(
@@ -48,6 +49,8 @@ public partial class MainPage : ContentPage
             PeerIdLabel.Text = "Identity unavailable";
             CopyPeerIdButton.IsEnabled = false;
             CopyInviteButton.IsEnabled = false;
+            ShowInviteQrButton.IsEnabled = false;
+            ScanQrButton.IsEnabled = false;
             AddContactButton.IsEnabled = false;
             SaveDirectoryButton.IsEnabled = false;
             RegisterDirectoryButton.IsEnabled = false;
@@ -75,6 +78,8 @@ public partial class MainPage : ContentPage
             : $"Configured: {configuredDirectory}";
         CopyPeerIdButton.IsEnabled = true;
         CopyInviteButton.IsEnabled = true;
+        ShowInviteQrButton.IsEnabled = true;
+        ScanQrButton.IsEnabled = true;
         AddContactButton.IsEnabled = true;
         SaveDirectoryButton.IsEnabled = true;
         RegisterDirectoryButton.IsEnabled = configuredDirectory is not null;
@@ -114,6 +119,54 @@ public partial class MainPage : ContentPage
 
         await Clipboard.Default.SetTextAsync(_contactInvitation);
         StatusLabel.Text = "Contact invitation copied. Share it through a channel you trust.";
+    }
+
+    private async void OnShowInviteQrClicked(object? sender, EventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_contactInvitation))
+        {
+            return;
+        }
+
+        await Navigation.PushAsync(new QrDisplayPage(
+            "My contact QR",
+            _contactInvitation,
+            "This QR contains your public Dyract contact invitation. It does not contain your private identity key or local contact/message data.",
+            "Copy contact invite"));
+    }
+
+    private async void OnScanQrClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _scanning)
+        {
+            return;
+        }
+
+        _scanning = true;
+        ScanQrButton.IsEnabled = false;
+        try
+        {
+            var scanner = new QrScannerPage();
+            await Navigation.PushAsync(scanner);
+            var value = await scanner.Result;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                StatusLabel.Text = "QR scan cancelled.";
+                return;
+            }
+
+            InvitationEditor.Text = value;
+            StatusLabel.Text = "Dyract QR scanned. Tap Verify and import to run the normal identity/capability checks.";
+        }
+        catch (Exception exception)
+        {
+            StatusLabel.Text = $"QR scanner unavailable ({exception.GetType().Name}). You can still paste the value manually.";
+        }
+        finally
+        {
+            _scanning = false;
+            ScanQrButton.IsEnabled = _initialized;
+        }
     }
 
     private void OnSaveDirectoryClicked(object? sender, EventArgs e)
@@ -181,7 +234,7 @@ public partial class MainPage : ContentPage
             var value = InvitationEditor.Text?.Trim();
             if (string.IsNullOrWhiteSpace(value))
             {
-                StatusLabel.Text = "Paste a Dyract contact invitation or pairing response first.";
+                StatusLabel.Text = "Paste or scan a Dyract contact invitation or pairing response first.";
                 return;
             }
 
