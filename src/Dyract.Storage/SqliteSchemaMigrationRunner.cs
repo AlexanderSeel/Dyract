@@ -1,0 +1,205 @@
+using Microsoft.Data.Sqlite;
+
+namespace Dyract.Storage;
+
+/// <summary>
+/// Maintains an append-only migration ledger for the local SQLite database.
+/// The original Dyract schema predates this runner and is adopted as migration 1.
+/// Future schema changes must be added as ordered migration definitions here.
+/// </summary>
+public sealed class SqliteSchemaMigrationRunner
+{
+    public const int CurrentVersion = 1;
+
+    private static readonly MigrationDefinition[] Migrations =
+    [
+        new(1, "baseline-v1", Sql: null)
+    ];
+
+    private readonly string _connectionString;
+
+    public SqliteSchemaMigrationRunner(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared,
+            ForeignKeys = true
+        }.ToString();
+    }
+
+    public async Task ApplyAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await ExecuteAsync(connection, transaction, """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_utc INTEGER NOT NULL
+            );
+            """, cancellationToken);
+
+        var legacyVersion = await ReadLegacySchemaVersionAsync(connection, transaction, cancellationToken);
+        var applied = await ReadAppliedVersionsAsync(connection, transaction, cancellationToken);
+
+        if (legacyVersion is > CurrentVersion)
+        {
+            throw new InvalidOperationException(
+                $"Local database schema version {legacyVersion} is newer than this Dyract build supports ({CurrentVersion}).");
+        }
+
+        if (applied.Count > 0 && applied.Max() > CurrentVersion)
+        {
+            throw new InvalidOperationException(
+                $"Local database migration version {applied.Max()} is newer than this Dyract build supports ({CurrentVersion}).");
+        }
+
+        ValidateContiguousHistory(applied);
+
+        foreach (var migration in Migrations)
+        {
+            if (applied.Contains(migration.Version))
+            {
+                continue;
+            }
+
+            if (migration.Version == 1)
+            {
+                if (legacyVersion != 1)
+                {
+                    throw new InvalidOperationException(
+                        "The existing local database could not be identified as the Dyract v1 schema and will not be modified automatically.");
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(migration.Sql))
+            {
+                await ExecuteAsync(connection, transaction, migration.Sql, cancellationToken);
+            }
+
+            await RecordMigrationAsync(connection, transaction, migration, cancellationToken);
+            applied.Add(migration.Version);
+        }
+
+        ValidateContiguousHistory(applied);
+        if (applied.Count != CurrentVersion || applied.Max() != CurrentVersion)
+        {
+            throw new InvalidOperationException("Local database migration history is incomplete.");
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task<int?> ReadLegacySchemaVersionAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var tableCommand = connection.CreateCommand();
+        tableCommand.Transaction = transaction;
+        tableCommand.CommandText = """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'schema_info';
+            """;
+        var tableCount = Convert.ToInt32(await tableCommand.ExecuteScalarAsync(cancellationToken));
+        if (tableCount == 0)
+        {
+            return null;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT version FROM schema_info ORDER BY version;";
+
+        var versions = new List<int>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            versions.Add(reader.GetInt32(0));
+        }
+
+        if (versions.Count != 1)
+        {
+            throw new InvalidOperationException("Legacy local schema metadata is malformed.");
+        }
+
+        return versions[0];
+    }
+
+    private static async Task<HashSet<int>> ReadAppliedVersionsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT version FROM schema_migrations ORDER BY version;";
+
+        var versions = new HashSet<int>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!versions.Add(reader.GetInt32(0)))
+            {
+                throw new InvalidOperationException("Local database migration history contains duplicate versions.");
+            }
+        }
+
+        return versions;
+    }
+
+    private static void ValidateContiguousHistory(IReadOnlySet<int> versions)
+    {
+        if (versions.Count == 0)
+        {
+            return;
+        }
+
+        var maximum = versions.Max();
+        for (var version = 1; version <= maximum; version++)
+        {
+            if (!versions.Contains(version))
+            {
+                throw new InvalidOperationException(
+                    $"Local database migration history has a gap before version {maximum}.");
+            }
+        }
+    }
+
+    private static async Task RecordMigrationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        MigrationDefinition migration,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO schema_migrations(version, name, applied_utc)
+            VALUES($version, $name, $applied_utc);
+            """;
+        command.Parameters.AddWithValue("$version", migration.Version);
+        command.Parameters.AddWithValue("$name", migration.Name);
+        command.Parameters.AddWithValue("$applied_utc", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ExecuteAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private sealed record MigrationDefinition(int Version, string Name, string? Sql);
+}
