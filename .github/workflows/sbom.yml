@@ -1,0 +1,116 @@
+name: SBOM
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.csproj'
+      - '*.slnx'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.config/dotnet-tools.json'
+      - '.github/workflows/sbom.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**/*.csproj'
+      - '*.slnx'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.config/dotnet-tools.json'
+      - '.github/workflows/sbom.yml'
+
+concurrency:
+  group: sbom-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  NUGET_XMLDOC_MODE: skip
+
+permissions:
+  contents: read
+
+jobs:
+  cyclonedx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore pinned tools
+        run: dotnet tool restore
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Restore production graphs
+        run: |
+          dotnet restore src/Dyract.Server/Dyract.Server.csproj
+          dotnet restore src/Dyract.App/Dyract.App.csproj -p:TargetFramework=net10.0-android
+          dotnet restore experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj
+
+      - name: Generate CycloneDX 1.7 SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/sbom
+          version="0.0.0+${GITHUB_SHA::12}"
+
+          dotnet tool run dotnet-CycloneDX -- \
+            src/Dyract.Server/Dyract.Server.csproj \
+            -rs -ipr -tfm net10.0 -dpr \
+            -o artifacts/sbom -fn dyract-directory.cdx.json \
+            -F Json -spv 1.7 -sn Dyract.Directory -sv "$version"
+
+          dotnet tool run dotnet-CycloneDX -- \
+            src/Dyract.App/Dyract.App.csproj \
+            -rs -ipr -tfm net10.0-android -dpr \
+            -o artifacts/sbom -fn dyract-mobile-android.cdx.json \
+            -F Json -spv 1.7 -sn Dyract.Mobile.Android -sv "$version"
+
+          dotnet tool run dotnet-CycloneDX -- \
+            experiments/Dyract.Transport.AndroidHarness/Dyract.Transport.AndroidHarness.csproj \
+            -rs -ipr -tfm net10.0-android -dpr \
+            -o artifacts/sbom -fn dyract-transport-experiment.cdx.json \
+            -F Json -spv 1.7 -sn Dyract.Transport.Experimental.Android -sv "$version"
+
+      - name: Validate CycloneDX SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bom in artifacts/sbom/*.cdx.json; do
+            docker run --rm \
+              -v "$PWD:/work" \
+              cyclonedx/cyclonedx-cli:0.32.0 \
+              validate \
+              --input-file "/work/$bom" \
+              --input-format json \
+              --input-version v1_7 \
+              --fail-on-errors
+          done
+
+      - name: Create checksums
+        run: |
+          cd artifacts/sbom
+          sha256sum *.cdx.json > SHA256SUMS
+
+      - name: Upload SBOM bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: dyract-cyclonedx-sbom
+          path: artifacts/sbom/
+          if-no-files-found: error
+          retention-days: 30
