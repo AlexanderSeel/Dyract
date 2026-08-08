@@ -33,6 +33,16 @@ public sealed record PeerDeliveryAckFrame(
     public override DateTimeOffset Timestamp => DeliveredAt;
 }
 
+public sealed record PeerReadAckFrame(
+    string MessageId,
+    PeerId SenderPeerId,
+    PeerId RecipientPeerId,
+    DateTimeOffset ReadAt)
+    : PeerApplicationFrame(MessageId, SenderPeerId, RecipientPeerId)
+{
+    public override DateTimeOffset Timestamp => ReadAt;
+}
+
 public static class PeerMessagingProtocol
 {
     private static readonly byte[] Magic = "DYRM"u8.ToArray();
@@ -40,6 +50,7 @@ public static class PeerMessagingProtocol
     private const byte Version = 1;
     private const byte TextFrameType = 1;
     private const byte DeliveryAckFrameType = 2;
+    private const byte ReadAckFrameType = 3;
     private const int MessageIdLength = 32;
     private const int PeerIdLength = 56;
     private const int HeaderLength = 4 + 1 + 1 + MessageIdLength + (PeerIdLength * 2) + 8 + 4;
@@ -55,7 +66,8 @@ public static class PeerMessagingProtocol
         return frame switch
         {
             PeerTextMessageFrame text => EncodeText(text),
-            PeerDeliveryAckFrame ack => EncodeAck(ack),
+            PeerDeliveryAckFrame ack => EncodeDeliveryAck(ack),
+            PeerReadAckFrame read => EncodeReadAck(read),
             _ => throw new NotSupportedException($"Peer frame type {frame.GetType().Name} is not supported.")
         };
     }
@@ -87,7 +99,7 @@ public static class PeerMessagingProtocol
         }
 
         var frameType = packet[5];
-        if (frameType is not (TextFrameType or DeliveryAckFrameType))
+        if (frameType is not (TextFrameType or DeliveryAckFrameType or ReadAckFrameType))
         {
             error = "Peer message frame type is unsupported.";
             return false;
@@ -137,19 +149,17 @@ public static class PeerMessagingProtocol
             return false;
         }
 
-        if (frameType == DeliveryAckFrameType)
+        if (frameType is DeliveryAckFrameType or ReadAckFrameType)
         {
             if (payloadLength != 0)
             {
-                error = "Delivery ACK must not contain a payload.";
+                error = "Peer acknowledgement frame must not contain a payload.";
                 return false;
             }
 
-            frame = new PeerDeliveryAckFrame(
-                messageId,
-                senderPeerId,
-                recipientPeerId,
-                timestamp);
+            frame = frameType == DeliveryAckFrameType
+                ? new PeerDeliveryAckFrame(messageId, senderPeerId, recipientPeerId, timestamp)
+                : new PeerReadAckFrame(messageId, senderPeerId, recipientPeerId, timestamp);
             return true;
         }
 
@@ -228,6 +238,18 @@ public static class PeerMessagingProtocol
             deliveredAt);
     }
 
+    public static PeerReadAckFrame CreateReadAck(
+        PeerTextMessageFrame message,
+        DateTimeOffset readAt)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return new PeerReadAckFrame(
+            message.MessageId,
+            message.RecipientPeerId,
+            message.SenderPeerId,
+            readAt);
+    }
+
     private static byte[] EncodeText(PeerTextMessageFrame frame)
     {
         if (string.IsNullOrWhiteSpace(frame.Text) || frame.Text.Length > MaximumTextCharacters)
@@ -252,13 +274,22 @@ public static class PeerMessagingProtocol
             payload);
     }
 
-    private static byte[] EncodeAck(PeerDeliveryAckFrame frame)
+    private static byte[] EncodeDeliveryAck(PeerDeliveryAckFrame frame)
         => EncodeCore(
             DeliveryAckFrameType,
             frame.MessageId,
             frame.SenderPeerId,
             frame.RecipientPeerId,
             frame.DeliveredAt,
+            ReadOnlySpan<byte>.Empty);
+
+    private static byte[] EncodeReadAck(PeerReadAckFrame frame)
+        => EncodeCore(
+            ReadAckFrameType,
+            frame.MessageId,
+            frame.SenderPeerId,
+            frame.RecipientPeerId,
+            frame.ReadAt,
             ReadOnlySpan<byte>.Empty);
 
     private static byte[] EncodeCore(
