@@ -114,3 +114,5 @@ jobs:
           path: artifacts/sbom/
           if-no-files-found: error
           retention-days: 30
+
+# Validation marker: execute the full CycloneDX generation/validation path.
