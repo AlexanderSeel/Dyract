@@ -4,6 +4,8 @@
 <dict>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <key>NSCameraUsageDescription</key>
+  <string>Dyract uses the camera only when you choose to scan a Dyract contact or pairing QR code.</string>
   <key>UIDeviceFamily</key>
   <array>
     <integer>1</integer>
