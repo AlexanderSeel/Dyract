@@ -28,12 +28,12 @@ public sealed class GlobalRequestRateLimitMiddlewareTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        Assert.Equal("17", response.Headers.RetryAfter?.Delta?.TotalSeconds.ToString("0") ??
-                           response.Headers.TryGetValues("Retry-After", out var values)
-                               ? values.Single()
-                               : null);
+        Assert.True(response.Headers.TryGetValues("Retry-After", out var retryAfterValues));
+        Assert.Equal("17", retryAfterValues.Single());
         Assert.Contains("rate_limited", body, StringComparison.Ordinal);
-        Assert.Equal([DirectoryRateLimitCategory.PeerOperations], limiter.Categories);
+        Assert.Equal(
+            new[] { DirectoryRateLimitCategory.PeerOperations },
+            limiter.Categories);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class GlobalRequestRateLimitMiddlewareTests
         Assert.Equal(HttpStatusCode.BadRequest, peerResponse.StatusCode);
 
         Assert.Equal(
-            [DirectoryRateLimitCategory.Registration, DirectoryRateLimitCategory.PeerOperations],
+            new[] { DirectoryRateLimitCategory.Registration, DirectoryRateLimitCategory.PeerOperations },
             limiter.Categories);
     }
 
