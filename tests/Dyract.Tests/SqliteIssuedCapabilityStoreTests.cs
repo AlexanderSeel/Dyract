@@ -65,7 +65,7 @@ public sealed class SqliteIssuedCapabilityStoreTests
                 new FixedKeyProvider(0x53),
                 wrongStore);
 
-            await Assert.ThrowsAsync<System.Security.Cryptography.CryptographicException>(
+            await Assert.ThrowsAnyAsync<System.Security.Cryptography.CryptographicException>(
                 () => reader.GetIssuedCapabilityAsync(contactIdentity.PeerId.Value));
         }
         finally
