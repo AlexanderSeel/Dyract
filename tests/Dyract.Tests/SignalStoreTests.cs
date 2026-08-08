@@ -7,28 +7,28 @@ namespace Dyract.Tests;
 public sealed class SignalStoreTests
 {
     [Fact]
-    public void ExpiredSignals_AreNotReturned()
+    public async Task ExpiredSignals_AreNotReturned()
     {
         var store = new SignalStore();
         using var sender = PeerIdentity.Generate();
         using var target = PeerIdentity.Generate();
         var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
 
-        Assert.True(store.TryEnqueue(
+        var signal = await store.TryEnqueueAsync(
             sender.PeerId,
             target.PeerId,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "offer",
             "payload",
             now,
-            now.AddSeconds(10),
-            out _));
+            now.AddSeconds(10));
 
-        Assert.Empty(store.Fetch(target.PeerId, now.AddSeconds(11)));
+        Assert.NotNull(signal);
+        Assert.Empty(await store.FetchAsync(target.PeerId, now.AddSeconds(11)));
     }
 
     [Fact]
-    public void Acknowledgement_CannotRemoveAnotherTargetsSignal()
+    public async Task Acknowledgement_CannotRemoveAnotherTargetsSignal()
     {
         var store = new SignalStore();
         using var sender = PeerIdentity.Generate();
@@ -36,22 +36,22 @@ public sealed class SignalStoreTests
         using var charlie = PeerIdentity.Generate();
         var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
 
-        Assert.True(store.TryEnqueue(
+        var signal = await store.TryEnqueueAsync(
             sender.PeerId,
             bob.PeerId,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "candidate",
             "payload",
             now,
-            now.AddSeconds(30),
-            out var signal));
+            now.AddSeconds(30));
 
-        Assert.Equal(0, store.Acknowledge(charlie.PeerId, new[] { signal.SignalId }, now));
-        Assert.Single(store.Fetch(bob.PeerId, now));
+        Assert.NotNull(signal);
+        Assert.Equal(0, await store.AcknowledgeAsync(charlie.PeerId, new[] { signal.SignalId }, now));
+        Assert.Single(await store.FetchAsync(bob.PeerId, now));
     }
 
     [Fact]
-    public void PendingInbox_IsBounded()
+    public async Task PendingInbox_IsBounded()
     {
         var store = new SignalStore();
         using var sender = PeerIdentity.Generate();
@@ -60,25 +60,23 @@ public sealed class SignalStoreTests
 
         for (var i = 0; i < SignalStore.MaximumPendingPerPeer; i++)
         {
-            Assert.True(store.TryEnqueue(
+            Assert.NotNull(await store.TryEnqueueAsync(
                 sender.PeerId,
                 target.PeerId,
                 $"{i:x32}",
                 "candidate",
                 $"candidate-{i}",
                 now,
-                now.AddSeconds(30),
-                out _));
+                now.AddSeconds(30)));
         }
 
-        Assert.False(store.TryEnqueue(
+        Assert.Null(await store.TryEnqueueAsync(
             sender.PeerId,
             target.PeerId,
             "ffffffffffffffffffffffffffffffff",
             "candidate",
             "overflow",
             now,
-            now.AddSeconds(30),
-            out _));
+            now.AddSeconds(30)));
     }
 }
