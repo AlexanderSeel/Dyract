@@ -11,6 +11,7 @@ public partial class MainPage : ContentPage
 {
     private readonly IIdentityVault _identityVault;
     private readonly ILocalStore _localStore;
+    private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
     private string? _peerId;
     private string? _contactInvitation;
@@ -22,11 +23,13 @@ public partial class MainPage : ContentPage
     public MainPage(
         IIdentityVault identityVault,
         ILocalStore localStore,
+        IIssuedCapabilityStore issuedCapabilityStore,
         IDirectoryService directoryService)
     {
         InitializeComponent();
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
         _localStore = localStore ?? throw new ArgumentNullException(nameof(localStore));
+        _issuedCapabilityStore = issuedCapabilityStore ?? throw new ArgumentNullException(nameof(issuedCapabilityStore));
         _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
     }
 
@@ -367,6 +370,7 @@ public partial class MainPage : ContentPage
         await Navigation.PushAsync(new ConversationPage(
             _localStore,
             _identityVault,
+            _issuedCapabilityStore,
             _directoryService,
             contact));
     }
