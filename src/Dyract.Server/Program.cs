@@ -8,6 +8,7 @@ using Dyract.Protocol;
 using Dyract.Server.Services;
 using Microsoft.AspNetCore.RateLimiting;
 using Npgsql;
+using StackExchange.Redis;
 
 const long MaxRequestBodyBytes = 64 * 1024;
 
@@ -38,9 +39,24 @@ else
     builder.Services.AddHostedService<PostgresSchemaInitializer>();
 }
 
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+if (string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddSingleton<IPresenceStore, PresenceStore>();
+    builder.Services.AddSingleton<IReplayNonceStore, ReplayNonceStore>();
+}
+else
+{
+    var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+    redisOptions.AbortOnConnectFail = true;
+    redisOptions.ClientName = "dyract-directory";
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
+    builder.Services.AddSingleton<IPresenceStore, RedisPresenceStore>();
+    builder.Services.AddSingleton<IReplayNonceStore, RedisReplayNonceStore>();
+    builder.Services.AddHostedService<RedisTransientStateInitializer>();
+}
+
 builder.Services.AddSingleton<RegistrationChallengeStore>();
-builder.Services.AddSingleton<ReplayNonceStore>();
-builder.Services.AddSingleton<PresenceStore>();
 builder.Services.AddSingleton<SignalStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -230,7 +246,7 @@ static async Task<IResult> RegisterPeer(
 static async Task<IResult> LookupPeer(
     PeerLookupRequest request,
     IIdentityStore identities,
-    ReplayNonceStore replayNonces,
+    IReplayNonceStore replayNonces,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -268,7 +284,7 @@ static async Task<IResult> LookupPeer(
         return Unauthorized("signature_invalid", "Lookup signature could not be verified.");
     }
 
-    if (!replayNonces.TryAccept(requesterId, request.Nonce, now))
+    if (!await replayNonces.TryAcceptAsync(requesterId, request.Nonce, now, cancellationToken))
     {
         return Unauthorized("replay_detected", "This signed lookup nonce has already been used.");
     }
@@ -288,8 +304,8 @@ static async Task<IResult> LookupPeer(
 static async Task<IResult> PublishPresence(
     PublishPresenceRequest request,
     IIdentityStore identities,
-    PresenceStore presence,
-    ReplayNonceStore replayNonces,
+    IPresenceStore presence,
+    IReplayNonceStore replayNonces,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -347,12 +363,12 @@ static async Task<IResult> PublishPresence(
         return Unauthorized("signature_invalid", "Presence signature could not be verified.");
     }
 
-    if (!replayNonces.TryAccept(peerId, request.Nonce, now))
+    if (!await replayNonces.TryAcceptAsync(peerId, request.Nonce, now, cancellationToken))
     {
         return Unauthorized("replay_detected", "This signed presence nonce has already been used.");
     }
 
-    var lease = presence.Publish(peerId, request.Candidates, now, leaseExpires);
+    var lease = await presence.PublishAsync(peerId, request.Candidates, now, leaseExpires, cancellationToken);
 
     return Results.Ok(new PublishPresenceResponse(
         lease.PeerId.Value,
@@ -362,8 +378,8 @@ static async Task<IResult> PublishPresence(
 static async Task<IResult> RemovePresence(
     RemovePresenceRequest request,
     IIdentityStore identities,
-    PresenceStore presence,
-    ReplayNonceStore replayNonces,
+    IPresenceStore presence,
+    IReplayNonceStore replayNonces,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -399,19 +415,19 @@ static async Task<IResult> RemovePresence(
         return Unauthorized("signature_invalid", "Presence removal signature could not be verified.");
     }
 
-    if (!replayNonces.TryAccept(peerId, request.Nonce, now))
+    if (!await replayNonces.TryAcceptAsync(peerId, request.Nonce, now, cancellationToken))
     {
         return Unauthorized("replay_detected", "This signed presence nonce has already been used.");
     }
 
-    presence.Remove(peerId);
+    await presence.RemoveAsync(peerId, cancellationToken);
     return Results.NoContent();
 }
 
 static async Task<IResult> RevokeCapability(
     RevokeContactCapabilityRequest request,
     IIdentityStore identities,
-    ReplayNonceStore replayNonces,
+    IReplayNonceStore replayNonces,
     ICapabilityRevocationStore revocations,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
@@ -462,7 +478,7 @@ static async Task<IResult> RevokeCapability(
         return Unauthorized("signature_invalid", "Capability revocation signature could not be verified.");
     }
 
-    if (!replayNonces.TryAccept(issuerId, request.Nonce, now))
+    if (!await replayNonces.TryAcceptAsync(issuerId, request.Nonce, now, cancellationToken))
     {
         return Unauthorized("replay_detected", "This signed capability revocation nonce has already been used.");
     }
@@ -491,8 +507,8 @@ static async Task<IResult> RevokeCapability(
 static async Task<IResult> ResolvePeer(
     ResolvePeerRequest request,
     IIdentityStore identities,
-    PresenceStore presence,
-    ReplayNonceStore replayNonces,
+    IPresenceStore presence,
+    IReplayNonceStore replayNonces,
     ICapabilityRevocationStore revocations,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
@@ -557,12 +573,13 @@ static async Task<IResult> ResolvePeer(
         return capabilityError;
     }
 
-    if (!replayNonces.TryAccept(requesterId, request.Nonce, now))
+    if (!await replayNonces.TryAcceptAsync(requesterId, request.Nonce, now, cancellationToken))
     {
         return Unauthorized("replay_detected", "This signed resolve nonce has already been used.");
     }
 
-    if (!presence.TryGet(targetId, now, out var lease))
+    var lease = await presence.GetAsync(targetId, now, cancellationToken);
+    if (lease is null)
     {
         return Results.Ok(new ResolvePeerResponse(
             target.PeerId.Value,
