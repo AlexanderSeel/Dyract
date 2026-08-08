@@ -44,6 +44,7 @@ if (string.IsNullOrWhiteSpace(redisConnectionString))
 {
     builder.Services.AddSingleton<IPresenceStore, PresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, ReplayNonceStore>();
+    builder.Services.AddSingleton<ISignalStore, SignalStore>();
 }
 else
 {
@@ -53,12 +54,12 @@ else
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
     builder.Services.AddSingleton<IPresenceStore, RedisPresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, RedisReplayNonceStore>();
+    builder.Services.AddSingleton<ISignalStore, RedisSignalStore>();
     builder.Services.AddHostedService<RedisTransientStateInitializer>();
 }
 
 builder.Services.AddSingleton<RegistrationChallengeStore>();
-builder.Services.AddSingleton<SignalStore>();
-builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 builder.Services.AddRateLimiter(options =>
 {
