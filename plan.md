@@ -22,6 +22,7 @@ The target is **minimum necessary infrastructure with no central conversation hi
 12. Dyract authenticates the application peer independently of WebRTC/DTLS.
 13. Wire protocols are versioned, bounded and replay aware.
 14. Ordinary diagnostics do not expose raw Peer IDs, IPs, ICE strings, keys or message contents.
+15. Configured shared infrastructure must fail closed rather than silently degrading to process-local security state.
 
 ## 3. Repository structure
 
@@ -55,11 +56,12 @@ docs/
   local-storage-migrations.md
   server-database-migrations.md
   capability-revocation.md
+  redis-transient-state.md
 ```
 
 ## 4. Phase 0 — identity and directory bootstrap
 
-**Status: prototype implemented; production infrastructure hardening remains.**
+**Status: functional foundation implemented; deployment/security hardening remains.**
 
 Implemented:
 
@@ -74,21 +76,27 @@ Implemented:
 - [x] optional PostgreSQL identity store.
 - [x] ordered PostgreSQL schema migration ledger.
 - [x] PostgreSQL advisory-lock serialization for concurrent migrators.
-- [x] existing identity-table shape validation before adoption.
+- [x] existing critical table-shape validation before adoption and on later startup.
 - [x] PostgreSQL 18 integration CI.
+- [x] optional Redis shared registration challenges.
+- [x] optional Redis shared signed-request replay protection.
+- [x] Redis startup availability check/fail-closed behavior.
+- [x] Redis 8 integration CI.
 - [x] ASP.NET integration tests.
 
 Remaining:
 
 - [ ] production secret management.
+- [ ] Redis TLS/authentication/network deployment policy.
 - [ ] privacy-aware structured logs/metrics/retention.
+- [ ] distributed/global abuse controls beyond process-local ASP.NET rate limiting.
 - [ ] server metadata backup/restore policy.
 
-See `docs/server-database-migrations.md`.
+See `docs/server-database-migrations.md` and `docs/redis-transient-state.md`.
 
 ## 5. Phase 1 — contact authorization, presence and signaling
 
-**Status: prototype feature set implemented.**
+**Status: protocol/server feature set implemented with optional shared infrastructure.**
 
 ### Identity/contact exchange
 
@@ -129,8 +137,12 @@ dyract://pair/v1/...
 - [x] revoked capability IDs retained only until natural expiry.
 - [x] server revocation metadata omits the grantee/contact graph.
 - [x] per-issuer active revocation bound (512 prototype limit).
+- [x] PostgreSQL-backed revocation persistence.
+- [x] revocation survives process restart/fresh store instance.
+- [x] multiple PostgreSQL-backed instances share the same revocation state.
+- [x] revocation schema drift is rejected on server startup.
 
-Prototype limitation: revocations are currently in-memory server state. Before horizontally scaled production use they must move to TTL-capable shared state so process restart cannot resurrect a revoked grant.
+Without PostgreSQL, revocations use the in-memory development/test store and are intentionally process-local.
 
 See `docs/capability-revocation.md`.
 
@@ -139,10 +151,13 @@ See `docs/capability-revocation.md`.
 - [x] signed publish/update.
 - [x] signed removal.
 - [x] maximum two-minute lease.
-- [x] automatic expiry.
+- [x] automatic/logical expiry.
 - [x] candidate shape/count/address validation.
 - [x] capability-protected peer resolve.
-- [x] no permanent endpoint/IP history in prototype store.
+- [x] no permanent endpoint/IP history.
+- [x] optional Redis shared presence leases.
+- [x] cross-instance publish/get/remove integration tests.
+- [x] hashed PeerId token in Redis presence key names.
 
 ### Ephemeral WebRTC signaling
 
@@ -151,10 +166,16 @@ See `docs/capability-revocation.md`.
 - [x] offer/answer/candidate/end/close types only.
 - [x] maximum 60-second signal TTL.
 - [x] maximum 32 KiB signal payload.
-- [x] bounded target inbox.
+- [x] bounded target inbox (64).
 - [x] fetch retains items until explicit ACK.
 - [x] signaling is not used as an offline chat queue.
 - [x] revoked capabilities rejected for new signaling.
+- [x] optional Redis shared signaling inbox.
+- [x] atomic Redis expiry/capacity enforcement.
+- [x] cross-instance non-destructive fetch and target-scoped ACK tests.
+- [x] SHA-256-derived target token/cluster hash tag in Redis key names.
+
+See `docs/signaling.md` and `docs/redis-transient-state.md`.
 
 ## 6. Phase 2 — local mobile foundation
 
@@ -353,18 +374,26 @@ See `docs/reliable-messaging.md`.
 
 - [x] optional PostgreSQL identity store.
 - [x] ordered PostgreSQL schema migrations.
-- [x] PostgreSQL table-shape adoption validation.
+- [x] PostgreSQL table-shape adoption/startup validation.
 - [x] PostgreSQL advisory locking for concurrent application startup.
-- [x] PostgreSQL 18 migration integration CI.
-- [x] request/rate controls.
-- [ ] Redis/shared TTL state for presence, replay, signaling and revocations.
+- [x] PostgreSQL-backed metadata-minimized capability revocations.
+- [x] PostgreSQL 18 migration/revocation integration CI.
+- [x] optional Redis shared registration challenges.
+- [x] optional Redis shared replay protection.
+- [x] optional Redis shared presence leases.
+- [x] optional Redis atomic signaling inboxes.
+- [x] Redis 8 cross-instance integration CI.
+- [x] configured Redis startup fail-closed check.
+- [x] process-local request/rate controls.
+- [ ] production Redis TLS/authentication/network policy.
+- [ ] distributed/global rate limiting or edge abuse controls.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
 - [ ] secret/key management.
 - [ ] privacy-aware logs/metrics/retention.
 - [ ] server metadata backup/restore policy.
 
-See `docs/server-database-migrations.md`.
+See `docs/server-database-migrations.md` and `docs/redis-transient-state.md`.
 
 ## 13. Phase 9 — security hardening
 
@@ -402,5 +431,5 @@ Transport-dependent product work remains gated by physical evidence.
 5. Validate the shipping iOS UI/QR/SecureStorage path on a physical iPhone.
 6. If Android transport is viable, implement the production Android transport/frame sender and lifecycle-safe outbox scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
-8. Move ephemeral server state, including capability revocations, to shared TTL infrastructure before horizontal production deployment.
-9. Continue recovery UX, fuzzing, threat modeling and independent security review in parallel.
+8. Add production Redis security/deployment policy and distributed abuse controls before horizontal deployment.
+9. Continue recovery UX, fuzzing, threat modeling, SBOM automation and independent security review in parallel.
