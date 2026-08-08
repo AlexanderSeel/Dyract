@@ -4,7 +4,7 @@ namespace Dyract.Server.Services;
 
 public sealed class PostgresSchemaMigrator
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     private const long AdvisoryLockKey = 0x445952414354; // ASCII "DYRACT"
 
@@ -17,6 +17,18 @@ public sealed class PostgresSchemaMigrator
                 public_key    bytea NOT NULL,
                 registered_at timestamptz NOT NULL
             );
+            """),
+        new(2, "persist-capability-revocations", """
+            CREATE TABLE IF NOT EXISTS capability_revocation
+            (
+                issuer_peer_id text NOT NULL REFERENCES peer_identity(peer_id) ON DELETE CASCADE,
+                capability_id  text NOT NULL,
+                expires_at     timestamptz NOT NULL,
+                PRIMARY KEY (issuer_peer_id, capability_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_capability_revocation_expires_at
+                ON capability_revocation(expires_at);
             """)
     ];
 
@@ -66,9 +78,14 @@ public sealed class PostgresSchemaMigrator
 
             await ExecuteAsync(connection, transaction, migration.Sql, cancellationToken);
 
-            if (migration.Version == 1)
+            switch (migration.Version)
             {
-                await ValidatePeerIdentitySchemaAsync(connection, transaction, cancellationToken);
+                case 1:
+                    await ValidatePeerIdentitySchemaAsync(connection, transaction, cancellationToken);
+                    break;
+                case 2:
+                    await ValidateCapabilityRevocationSchemaAsync(connection, transaction, cancellationToken);
+                    break;
             }
 
             await RecordMigrationAsync(connection, transaction, migration, cancellationToken);
@@ -184,6 +201,75 @@ public sealed class PostgresSchemaMigrator
         {
             throw new InvalidOperationException(
                 "Existing PostgreSQL peer_identity schema does not match the Dyract v1 identity schema and will not be modified automatically.");
+        }
+    }
+
+    private static async Task ValidateCapabilityRevocationSchemaAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT
+                EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'capability_revocation'
+                      AND column_name = 'issuer_peer_id'
+                      AND data_type = 'text'
+                      AND is_nullable = 'NO'
+                ),
+                EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'capability_revocation'
+                      AND column_name = 'capability_id'
+                      AND data_type = 'text'
+                      AND is_nullable = 'NO'
+                ),
+                EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'capability_revocation'
+                      AND column_name = 'expires_at'
+                      AND data_type = 'timestamp with time zone'
+                      AND is_nullable = 'NO'
+                ),
+                EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                    WHERE c.contype = 'p'
+                      AND n.nspname = current_schema()
+                      AND t.relname = 'capability_revocation'
+                      AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (issuer_peer_id, capability_id)'
+                ),
+                NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'capability_revocation'
+                      AND column_name ILIKE '%grantee%'
+                );
+            """,
+            connection,
+            transaction);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken) ||
+            !reader.GetBoolean(0) ||
+            !reader.GetBoolean(1) ||
+            !reader.GetBoolean(2) ||
+            !reader.GetBoolean(3) ||
+            !reader.GetBoolean(4))
+        {
+            throw new InvalidOperationException(
+                "Existing PostgreSQL capability_revocation schema does not match Dyract's metadata-minimized revocation schema and will not be modified automatically.");
         }
     }
 
