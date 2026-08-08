@@ -6,6 +6,8 @@ namespace Dyract.Protocol;
 public static class ContactPairingCodec
 {
     public const string Prefix = "dyract://pair/v1/";
+    private const int MaximumPayloadBytes = 8192;
+    private const int MaximumEncodedPayloadCharacters = ((MaximumPayloadBytes + 2) / 3) * 4;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static string Encode(ContactCapability capability)
@@ -21,16 +23,25 @@ public static class ContactPairingCodec
         capability = null;
         error = null;
 
-        if (string.IsNullOrWhiteSpace(value) || !value.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length > Prefix.Length + MaximumEncodedPayloadCharacters ||
+            !value.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
         {
             error = "This is not a Dyract pairing response.";
             return false;
         }
 
+        var encodedPayload = value[Prefix.Length..];
+        if (encodedPayload.Length == 0 || encodedPayload.Length > MaximumEncodedPayloadCharacters)
+        {
+            error = "Pairing response payload is invalid or too large.";
+            return false;
+        }
+
         try
         {
-            var payload = FromBase64Url(value[Prefix.Length..]);
-            if (payload.Length > 8192)
+            var payload = FromBase64Url(encodedPayload);
+            if (payload.Length > MaximumPayloadBytes)
             {
                 error = "Pairing response is too large.";
                 return false;
