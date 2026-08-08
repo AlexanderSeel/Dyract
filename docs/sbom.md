@@ -114,6 +114,8 @@ Checksums are stored beside the BOMs in:
 SHA256SUMS
 ```
 
+The first full repository validation completed successfully in GitHub Actions run `31248702771`: all three dependency graphs restored, all three CycloneDX 1.7 BOMs generated, official validation passed, checksums were created, and the artifact upload succeeded.
+
 ## Artifact retention
 
 CI SBOM bundles are currently retained for 30 days.
@@ -191,6 +193,6 @@ The repository-side SBOM automation is complete when:
 - [x] CI artifact upload is configured;
 - [x] NuGet dependency update automation is configured;
 - [x] GitHub Actions update automation is configured;
-- [ ] the workflow has executed successfully on GitHub Actions;
+- [x] the workflow has executed successfully on GitHub Actions.
 
-The final item must remain unchecked until a real workflow run passes.
+Repository-side SBOM/dependency automation is therefore complete. Release attachment/long-term retention and vulnerability-management ingestion remain release-process work rather than blockers for this automation milestone.
