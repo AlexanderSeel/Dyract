@@ -2,7 +2,7 @@
 
 ## Current status
 
-Dyract now separates the **protocol identity-signing contract** from the current exportable software-key implementation.
+Dyract separates the **protocol identity-signing contract** from the current exportable software-key implementation.
 
 Shared protocol/client code depends on:
 
@@ -17,7 +17,16 @@ public interface IPeerIdentitySigner
 
 The contract intentionally has no private-key export operation.
 
-`PeerIdentity` remains the current software implementation and still supports PKCS#8 export because the shipping MAUI `SecureIdentityVault` currently persists that material through platform `SecureStorage`. This is a transition architecture, not a claim that the current mobile identity key is non-exportable.
+`PeerIdentity` remains the **shipping** software implementation and still supports PKCS#8 export because the current MAUI `SecureIdentityVault` persists that material through platform `SecureStorage`. This is a transition architecture, not a claim that the current mobile identity key is non-exportable.
+
+Two inactive platform-native signer experiments now also exist:
+
+```text
+AndroidKeystoreIdentitySigner
+IosSecureEnclaveIdentitySigner
+```
+
+Both compile in the shipping Android/iOS project surfaces. Neither is selected by `SecureIdentityVault`, and neither has physical-device/runtime/migration acceptance yet.
 
 ## Protocol consumers migrated to the signer boundary
 
@@ -36,9 +45,36 @@ The following operations no longer require concrete `PeerIdentity` or access to 
 
 The session handshake wire format, public-key representation and P-256 signature format are unchanged.
 
+## Shared platform crypto normalization
+
+Platform key APIs do not expose exactly the same representations as Dyract's current managed crypto API. Conversion is centralized in `Dyract.Crypto` rather than duplicated per platform.
+
+### ECDSA signature encoding
+
+`EcdsaSignatureEncoding.DerToP256P1363(...)` converts canonical ASN.1 DER ECDSA `(r,s)` signatures into Dyract's fixed 64-byte IEEE-P1363 P-256 representation.
+
+It rejects:
+
+- empty/malformed DER;
+- trailing ASN.1 data;
+- non-positive integers;
+- coordinates larger than 32 bytes.
+
+### Public identity encoding
+
+`P256PublicKeyEncoding.UncompressedPointToSubjectPublicKeyInfo(...)` converts the 65-byte uncompressed X9.63 P-256 point:
+
+```text
+04 || X[32] || Y[32]
+```
+
+into the same SubjectPublicKeyInfo representation already used to derive Dyract PeerIds.
+
+Regression tests prove that converting a generated P-256 raw point preserves the same derived PeerId.
+
 ## Why this matters
 
-A platform-native identity key should ideally expose only public identity material and signing operations:
+A platform-native identity key should expose only public identity material and signing operations:
 
 ```text
 protocol proof bytes
@@ -47,14 +83,14 @@ IPeerIdentitySigner.Sign(...)
         ↓
 platform key handle
         ↓
-P-256 IEEE-P1363 signature
+P-256 signature
+        ↓
+shared canonical P1363 representation
 ```
 
-The application should not need to export the private scalar merely to sign a directory request or peer handshake.
+The application does not need to export the private scalar merely to sign a directory request or peer handshake.
 
-This boundary is prerequisite work for Android Keystore / iOS Secure Enclave implementations.
-
-## Repository proof
+## Repository proof of the abstraction
 
 `IdentitySignerAbstractionTests` uses a deliberately non-exporting wrapper that implements only `IPeerIdentitySigner`. The wrapper internally delegates to a test `PeerIdentity`, but does not expose any private-export API to protocol callers.
 
@@ -68,43 +104,89 @@ The test proves the abstraction is sufficient for:
 6. `DYSH` authenticated session establishment;
 7. `DYSE` encrypted application data.
 
-A reflection assertion also prevents accidental addition of a private-key/PKCS#8 export member to `IPeerIdentitySigner`.
+A reflection assertion prevents accidental addition of a private-key/PKCS#8 export member to `IPeerIdentitySigner`.
 
 This proves dependency shape only. It does **not** prove hardware-backed or non-exportable mobile key storage.
 
-## Android target design
+## Android Keystore experiment
 
-The next Android-specific experiment should evaluate generating the Dyract P-256 identity directly in Android Keystore and retaining only an alias/key handle.
+`AndroidKeystoreIdentitySigner` is an inactive Android-only implementation of `IPeerIdentitySigner`.
 
-Acceptance questions:
+Current design:
 
-- can Keystore produce the exact ECDSA/SHA-256 signature semantics expected by Dyract;
-- can signatures be converted/produced in the fixed 64-byte IEEE-P1363 representation used by the protocol;
-- is the public SPKI stable and sufficient to derive the existing PeerId;
-- what hardware-backed/StrongBox availability exists on supported devices;
-- what fallback policy applies when hardware backing is unavailable;
-- what happens after lock-screen credential changes, device transfer/restore, app reinstall and OS upgrade;
-- should key use require biometric/device authentication, and what usability/background-delivery effects follow;
-- how migration from the existing PKCS#8 SecureStorage identity would work without silently changing PeerId.
+- AndroidKeyStore provider;
+- alias-held EC private key;
+- `secp256r1` / NIST P-256;
+- signing restricted to SHA-256 ECDSA;
+- public certificate key exported only as SPKI;
+- private key never exported through the Dyract interface;
+- Android DER ECDSA signature converted by the shared DER -> P1363 helper.
 
-No Android hardware/non-exportable claim should be made until physical-device tests verify these properties.
+The implementation now compiles successfully in the shipping `.NET 10` Android Release build.
 
-## iOS target design
+### Android status that is **not** yet proven
 
-The iOS experiment should evaluate a Keychain/Secure Enclave P-256 signing key referenced by a persistent key handle rather than exported private bytes.
+Compile success does not establish:
 
-Acceptance questions:
+- physical-device signing behavior;
+- alias persistence over process/app lifecycle;
+- whether the key is hardware-backed on each supported device;
+- StrongBox availability or fallback policy;
+- behavior after lock-screen credential changes, OS upgrade or device restore;
+- reinstall/uninstall behavior;
+- acceptable authentication/biometric-on-use policy;
+- migration of existing PKCS#8 identities without changing PeerId.
 
-- whether Secure Enclave ECDSA signatures interoperate with the current Dyract P-256 identity format;
-- DER vs IEEE-P1363 signature conversion and canonical validation;
+Therefore the Android signer remains inactive until physical-device/security acceptance is complete.
+
+## iOS Secure Enclave experiment
+
+`IosSecureEnclaveIdentitySigner` is an inactive iOS-only implementation of `IPeerIdentitySigner`.
+
+Current design:
+
+- persistent `SecKey` identified by application tag;
+- EC P-256 / `SecTokenID.SecureEnclave` generation request;
+- private key query through Keychain/Security APIs;
+- signing through `EcdsaSignatureMessageX962Sha256`;
+- public key obtained through `SecKey.GetPublicKey()` and external public representation;
+- raw X9.63 public point normalized through the shared SPKI helper;
+- DER ECDSA signature normalized through the shared P1363 helper;
+- private key never exported through the Dyract interface.
+
+The implementation compiles successfully for the `iossimulator-arm64` Release target on the current macOS 26 / Xcode 26.6 CI image.
+
+### iOS status that is **not** yet proven
+
+The simulator does not prove Secure Enclave runtime behavior. Still required on a physical iPhone:
+
+- actual Secure Enclave key generation and lookup;
+- signing interoperability with Dyract verification;
 - stable public SPKI/PeerId derivation;
-- Keychain accessibility class;
+- Keychain accessibility semantics;
 - passcode/biometric access-control policy;
-- reinstall and Keychain persistence behavior;
-- device migration and recovery implications;
-- whether a restored identity can remain the same identity without exporting the Secure Enclave private key.
+- process restart persistence;
+- uninstall/reinstall Keychain behavior;
+- device migration/restore behavior;
+- recovery implications for a non-exportable Secure Enclave key.
 
-Secure Enclave evaluation remains open until tested on a physical iPhone.
+The iOS signer remains inactive until that evidence and migration policy exist.
+
+## Shipping identity remains unchanged
+
+`SecureIdentityVault` still uses the existing explicit flow:
+
+```text
+PeerIdentity.Generate()
+        ↓
+ExportPkcs8PrivateKey()
+        ↓
+MAUI SecureStorage
+```
+
+This is deliberate. Enabling a newly generated native platform key for an existing installation would change its PeerId unless an explicit identity-continuity mechanism exists.
+
+The platform-native experiments must therefore not be silently selected during an app update.
 
 ## Migration boundary
 
@@ -128,17 +210,22 @@ See `docs/device-compromise-recovery.md`.
 
 ## Current PLAN acceptance
 
-Completed repository prerequisite:
+Completed repository prerequisites:
 
-- protocol/client signing no longer requires private-key export.
+- protocol/client signing no longer requires private-key export;
+- canonical platform ECDSA/public-key encoding helpers are implemented/tested;
+- Android Keystore signer implementation compiles in Android Release;
+- iOS Secure Enclave signer implementation compiles in iOS simulator Release.
 
 Still open:
 
-- Android Keystore non-exportable signer implementation and physical-device evaluation;
-- hardware-backed/StrongBox fallback policy;
-- iOS Keychain/Secure Enclave signer implementation and physical-device evaluation;
+- Android physical-device Keystore signer runtime evaluation;
+- hardware-backed/StrongBox detection and fallback policy;
+- iOS physical-device Secure Enclave runtime evaluation;
+- Keychain accessibility/biometric policy;
 - migration/identity-continuity design for existing installations;
+- activation strategy in `SecureIdentityVault`;
 - recovery interaction design;
 - independent mobile secure-storage review.
 
-These remain separate PLAN items and must not be marked complete from the abstraction alone.
+Compile-level implementation must not be described as physical non-exportability or hardware-backed runtime acceptance.
