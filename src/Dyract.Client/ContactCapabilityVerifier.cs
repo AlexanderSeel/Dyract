@@ -54,6 +54,14 @@ public static class ContactCapabilityVerifier
             return false;
         }
 
+        if (!ContactCapabilityPolicy.IsLifetimeAllowed(
+                capability.IssuedUnixSeconds,
+                capability.ExpiresUnixSeconds))
+        {
+            error = "Pairing response lifetime is invalid or exceeds the supported maximum.";
+            return false;
+        }
+
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
         DateTimeOffset issuedAt;
         DateTimeOffset expiresAt;
