@@ -24,6 +24,7 @@ public interface IDirectoryService
     Uri Configure(string value);
     Task<DirectoryRegistrationResult> RegisterAsync(CancellationToken cancellationToken = default);
     Task<DirectoryReachabilityResult> ResolveAsync(LocalContact contact, CancellationToken cancellationToken = default);
+    Task RevokeIssuedCapabilityAsync(ContactCapability capability, CancellationToken cancellationToken = default);
 }
 
 public sealed class DirectoryService : IDirectoryService, IDisposable
@@ -158,6 +159,16 @@ public sealed class DirectoryService : IDirectoryService, IDisposable
             response.IsReachable,
             response.Candidates,
             leaseExpiresAt);
+    }
+
+    public async Task RevokeIssuedCapabilityAsync(
+        ContactCapability capability,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        var baseUri = RequireBaseUri();
+        using var identity = await _identityVault.GetOrCreateAsync(cancellationToken);
+        await GetClient(baseUri).RevokeContactCapabilityAsync(identity, capability, cancellationToken);
     }
 
     public void Dispose()
