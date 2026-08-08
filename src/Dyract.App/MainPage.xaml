@@ -43,8 +43,13 @@
                             x:Name="CopyInviteButton"
                             Clicked="OnCopyInviteClicked"
                             IsEnabled="False"
-                            Text="Copy contact invite" />
+                            Text="Copy invite" />
                     </HorizontalStackLayout>
+                    <Button
+                        x:Name="ShowInviteQrButton"
+                        Clicked="OnShowInviteQrClicked"
+                        IsEnabled="False"
+                        Text="Show my contact QR" />
                 </VerticalStackLayout>
             </Border>
 
@@ -90,17 +95,26 @@
                     <Label FontAttributes="Bold" Text="Add or pair contact" />
                     <Label
                         FontSize="12"
-                        Text="Paste a dyract://contact invitation to pin a peer identity, or a dyract://pair response from a saved contact to authorize endpoint discovery." />
+                        Text="Scan or paste a dyract://contact invitation to pin a peer identity, or a dyract://pair response from a saved contact to authorize endpoint discovery. Scanning never bypasses verification." />
                     <Editor
                         x:Name="InvitationEditor"
                         AutoSize="TextChanges"
                         HeightRequest="90"
                         Placeholder="dyract://contact/v1/… or dyract://pair/v1/…" />
-                    <Button
-                        x:Name="AddContactButton"
-                        Clicked="OnAddContactClicked"
-                        IsEnabled="False"
-                        Text="Verify and import" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Button
+                            x:Name="ScanQrButton"
+                            Grid.Column="0"
+                            Clicked="OnScanQrClicked"
+                            IsEnabled="False"
+                            Text="Scan QR" />
+                        <Button
+                            x:Name="AddContactButton"
+                            Grid.Column="1"
+                            Clicked="OnAddContactClicked"
+                            IsEnabled="False"
+                            Text="Verify and import" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 
@@ -140,7 +154,7 @@
 
             <Label
                 FontSize="11"
-                Text="Early development build — messages are stored and queued locally; directory discovery is available, but P2P transport is not connected yet." />
+                Text="Early development build — messages are stored and queued locally; directory discovery is available, but production P2P delivery is not connected yet." />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
