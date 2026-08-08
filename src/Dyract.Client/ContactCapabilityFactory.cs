@@ -20,9 +20,11 @@ public static class ContactCapabilityFactory
             throw new ArgumentException("Grantee PeerId is invalid.", nameof(granteePeerId));
         }
 
-        if (lifetime <= TimeSpan.Zero)
+        if (lifetime <= TimeSpan.Zero || lifetime > ContactCapabilityPolicy.MaximumLifetime)
         {
-            throw new ArgumentOutOfRangeException(nameof(lifetime), "Capability lifetime must be positive.");
+            throw new ArgumentOutOfRangeException(
+                nameof(lifetime),
+                $"Capability lifetime must be positive and no longer than {ContactCapabilityPolicy.MaximumLifetime.TotalDays:0} days.");
         }
 
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
