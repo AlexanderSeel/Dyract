@@ -23,7 +23,7 @@ public static class MauiProgram
         {
             var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
             var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new SqliteLocalStore(databasePath, keyProvider);
+            return new MigratingLocalStore(databasePath, keyProvider);
         });
         builder.Services.AddSingleton<SqliteIncomingMessageStore>(services =>
         {
