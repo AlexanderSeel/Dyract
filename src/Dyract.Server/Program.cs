@@ -27,12 +27,14 @@ var identityConnectionString = builder.Configuration.GetConnectionString("Dyract
 if (string.IsNullOrWhiteSpace(identityConnectionString))
 {
     builder.Services.AddSingleton<IIdentityStore, InMemoryIdentityStore>();
+    builder.Services.AddSingleton<ICapabilityRevocationStore, CapabilityRevocationStore>();
 }
 else
 {
     var postgresConnectionString = identityConnectionString;
     builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgresConnectionString));
     builder.Services.AddSingleton<IIdentityStore, PostgresIdentityStore>();
+    builder.Services.AddSingleton<ICapabilityRevocationStore, PostgresCapabilityRevocationStore>();
     builder.Services.AddHostedService<PostgresSchemaInitializer>();
 }
 
@@ -40,7 +42,6 @@ builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<ReplayNonceStore>();
 builder.Services.AddSingleton<PresenceStore>();
 builder.Services.AddSingleton<SignalStore>();
-builder.Services.AddSingleton<CapabilityRevocationStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddRateLimiter(options =>
@@ -411,7 +412,7 @@ static async Task<IResult> RevokeCapability(
     RevokeContactCapabilityRequest request,
     IIdentityStore identities,
     ReplayNonceStore replayNonces,
-    CapabilityRevocationStore revocations,
+    ICapabilityRevocationStore revocations,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -466,7 +467,12 @@ static async Task<IResult> RevokeCapability(
         return Unauthorized("replay_detected", "This signed capability revocation nonce has already been used.");
     }
 
-    var result = revocations.Revoke(issuerId, request.CapabilityId, expiresAt, now);
+    var result = await revocations.RevokeAsync(
+        issuerId,
+        request.CapabilityId,
+        expiresAt,
+        now,
+        cancellationToken);
     if (result == CapabilityRevocationResult.CapacityExceeded)
     {
         return Results.Json(
@@ -487,7 +493,7 @@ static async Task<IResult> ResolvePeer(
     IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
-    CapabilityRevocationStore revocations,
+    ICapabilityRevocationStore revocations,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -537,13 +543,14 @@ static async Task<IResult> ResolvePeer(
         return Unauthorized("signature_invalid", "Resolve signature could not be verified.");
     }
 
-    var capabilityError = ValidateContactCapability(
+    var capabilityError = await ValidateContactCapabilityAsync(
         request.Capability,
         requesterId,
         targetId,
         target.PublicKey,
         revocations,
-        now);
+        now,
+        cancellationToken);
 
     if (capabilityError is not null)
     {
@@ -573,13 +580,14 @@ static async Task<IResult> ResolvePeer(
         LeaseExpiresUnixSeconds: lease.ExpiresAt.ToUnixTimeSeconds()));
 }
 
-static IResult? ValidateContactCapability(
+static async Task<IResult?> ValidateContactCapabilityAsync(
     ContactCapability capability,
     PeerId requesterId,
     PeerId targetId,
     byte[] targetPublicKey,
-    CapabilityRevocationStore revocations,
-    DateTimeOffset now)
+    ICapabilityRevocationStore revocations,
+    DateTimeOffset now,
+    CancellationToken cancellationToken)
 {
     if (capability.Version != 1)
     {
@@ -608,7 +616,7 @@ static IResult? ValidateContactCapability(
         return Unauthorized("capability_expired", "Contact capability is invalid or expired.");
     }
 
-    if (revocations.IsRevoked(targetId, capability.CapabilityId, now))
+    if (await revocations.IsRevokedAsync(targetId, capability.CapabilityId, now, cancellationToken))
     {
         return Unauthorized("capability_revoked", "Contact capability has been revoked by its issuer.");
     }
