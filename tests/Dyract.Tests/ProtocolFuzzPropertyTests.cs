@@ -261,15 +261,21 @@ public sealed class ProtocolFuzzPropertyTests
 
     private static void AssertHandshakeRejected(Action action)
     {
+        var rejected = false;
         try
         {
             action();
-            Assert.Fail("Mutated session handshake data was unexpectedly accepted.");
         }
-        catch (Exception exception) when (exception is CryptographicException or ArgumentException)
+        catch (CryptographicException)
         {
-            // Expected fail-closed parser/authentication outcome.
+            rejected = true;
         }
+        catch (ArgumentException)
+        {
+            rejected = true;
+        }
+
+        Assert.True(rejected, "Mutated session handshake data was unexpectedly accepted.");
     }
 
     private static string CreateGeneratedText(Random random, int index)
