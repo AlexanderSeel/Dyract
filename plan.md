@@ -57,7 +57,10 @@ docs/
   server-database-migrations.md
   capability-revocation.md
   redis-transient-state.md
+  rate-limiting.md
   threat-model.md
+  protocol-fuzzing.md
+  device-compromise-recovery.md
   sbom.md
 ```
 
@@ -84,6 +87,7 @@ Implemented:
 - [x] optional Redis shared signed-request replay protection.
 - [x] Redis startup availability check/fail-closed behavior.
 - [x] Redis 8 integration CI.
+- [x] layered process-local + Redis shared application request limiting.
 - [x] ASP.NET integration tests.
 
 Remaining:
@@ -91,10 +95,10 @@ Remaining:
 - [ ] production secret management.
 - [ ] Redis TLS/authentication/network deployment policy.
 - [ ] privacy-aware structured logs/metrics/retention.
-- [ ] distributed/global abuse controls beyond process-local ASP.NET rate limiting.
+- [ ] production edge/network DDoS and abuse-control deployment/validation.
 - [ ] server metadata backup/restore policy.
 
-See `docs/server-database-migrations.md` and `docs/redis-transient-state.md`.
+See `docs/server-database-migrations.md`, `docs/redis-transient-state.md` and `docs/rate-limiting.md`.
 
 ## 5. Phase 1 — contact authorization, presence and signaling
 
@@ -195,6 +199,7 @@ See `docs/signaling.md` and `docs/redis-transient-state.md`.
 - [x] Android Release CI.
 - [x] iOS `iossimulator-arm64` Release CI on macOS 26 / Xcode 26.6.
 - [x] current Android and iOS shipping builds are warning-clean.
+- [x] repository stolen-device/recovery security analysis.
 
 Remaining:
 
@@ -204,6 +209,8 @@ Remaining:
 - [ ] Secure Enclave evaluation.
 - [ ] encrypted identity export/recovery.
 - [ ] identity reset/recovery UX.
+
+See `docs/device-compromise-recovery.md`.
 
 ### Encrypted SQLite
 
@@ -308,15 +315,16 @@ Current Android harness builds expose `XA0141`: the bundled `libjingle_peerconne
 - [x] monotonic sequence/replay/out-of-order rejection.
 - [x] protocol version/size bounds.
 - [x] adversarial tests for tampering/wrong identity/wrong session/replay.
+- [x] deterministic repository fuzz/property tests for handshake, `DYSE` and `DYRM` boundaries.
 - [x] Android transport harness performs handshake before probes.
 
 Remaining:
 
 - [ ] independent cryptographic review.
-- [ ] fuzz/property tests.
+- [ ] coverage-guided/external fuzzing beyond deterministic repository regression properties.
 - [ ] decide reconnect-level forward secrecy vs reviewed Noise/Double-Ratchet design.
 
-See `docs/session-security.md`.
+See `docs/session-security.md` and `docs/protocol-fuzzing.md`.
 
 ## 9. Phase 5 — reliable messaging
 
@@ -387,15 +395,17 @@ See `docs/reliable-messaging.md`.
 - [x] Redis 8 cross-instance integration CI.
 - [x] configured Redis startup fail-closed check.
 - [x] process-local request/rate controls.
+- [x] Redis shared fixed-window application rate limiting across directory instances.
+- [x] shared limiter client-partition hashing and middleware routing tests.
 - [ ] production Redis TLS/authentication/network policy.
-- [ ] distributed/global rate limiting or edge abuse controls.
+- [ ] production edge/network DDoS/WAF/global abuse-control deployment and validation.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
 - [ ] secret/key management.
 - [ ] privacy-aware logs/metrics/retention.
 - [ ] server metadata backup/restore policy.
 
-See `docs/server-database-migrations.md` and `docs/redis-transient-state.md`.
+See `docs/server-database-migrations.md`, `docs/redis-transient-state.md` and `docs/rate-limiting.md`.
 
 ## 13. Phase 9 — security hardening
 
@@ -404,15 +414,17 @@ Before public production use:
 - [x] repository STRIDE + metadata/privacy threat model.
 - [ ] independent threat-model/security review.
 - [ ] API penetration testing.
-- [ ] protocol fuzz/property tests.
-- [ ] system-level replay/downgrade/session-collision tests.
-- [ ] endpoint-enumeration/abuse tests.
-- [ ] stolen-device/recovery analysis.
+- [x] deterministic repository protocol fuzz/property tests.
+- [x] repository/session-level replay, downgrade and cross-session isolation regression tests.
+- [ ] end-to-end production-transport replay/downgrade/session-collision validation.
+- [x] repository endpoint-enumeration/capability-abuse integration tests.
+- [x] stolen-device/recovery analysis.
 - [x] SBOM/dependency automation.
+- [ ] coverage-guided/external fuzzing and minimized corpus workflow.
 - [ ] independent cryptographic review.
 - [ ] mobile secure-storage review.
 
-See `docs/threat-model.md` and `docs/sbom.md`.
+See `docs/threat-model.md`, `docs/protocol-fuzzing.md`, `docs/device-compromise-recovery.md` and `docs/sbom.md`.
 
 ## 14. Deferred until one-to-one messaging is proven
 
@@ -436,5 +448,6 @@ Transport-dependent product work remains gated by physical evidence.
 5. Validate the shipping iOS UI/QR/SecureStorage path on a physical iPhone.
 6. If Android transport is viable, implement the production Android transport/frame sender and lifecycle-safe outbox scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
-8. Add production Redis security/deployment policy and distributed abuse controls before horizontal deployment.
-9. Continue protocol fuzz/property testing, recovery analysis, independent threat-model/security review, cryptographic review and release SBOM/provenance policy in parallel.
+8. Define/enforce production Redis TLS/authentication/network policy and edge abuse-control deployment before horizontal public deployment.
+9. Add recovery/security settings UX without introducing weak/plaintext identity export.
+10. Continue platform-native non-exportable key evaluation, coverage-guided fuzzing, privacy-aware observability, independent threat/security review and cryptographic review in parallel.
