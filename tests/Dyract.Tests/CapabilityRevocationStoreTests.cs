@@ -7,7 +7,7 @@ namespace Dyract.Tests;
 public sealed class CapabilityRevocationStoreTests
 {
     [Fact]
-    public void Revoke_IsIssuerScopedAndExpiresNaturally()
+    public async Task Revoke_IsIssuerScopedAndExpiresNaturally()
     {
         var store = new CapabilityRevocationStore();
         using var alice = PeerIdentity.Generate();
@@ -17,15 +17,15 @@ public sealed class CapabilityRevocationStoreTests
 
         Assert.Equal(
             CapabilityRevocationResult.Revoked,
-            store.Revoke(alice.PeerId, id, now.AddMinutes(10), now));
-        Assert.True(store.IsRevoked(alice.PeerId, id, now));
-        Assert.False(store.IsRevoked(bob.PeerId, id, now));
-        Assert.False(store.IsRevoked(alice.PeerId, id, now.AddMinutes(11)));
+            await store.RevokeAsync(alice.PeerId, id, now.AddMinutes(10), now));
+        Assert.True(await store.IsRevokedAsync(alice.PeerId, id, now));
+        Assert.False(await store.IsRevokedAsync(bob.PeerId, id, now));
+        Assert.False(await store.IsRevokedAsync(alice.PeerId, id, now.AddMinutes(11)));
         Assert.Equal(0, store.CountActive(alice.PeerId, now.AddMinutes(11)));
     }
 
     [Fact]
-    public void Revoke_IsIdempotentAndCanExtendSameRevocationToNaturalExpiry()
+    public async Task Revoke_IsIdempotentAndCanExtendSameRevocationToNaturalExpiry()
     {
         var store = new CapabilityRevocationStore();
         using var issuer = PeerIdentity.Generate();
@@ -34,15 +34,15 @@ public sealed class CapabilityRevocationStoreTests
 
         Assert.Equal(
             CapabilityRevocationResult.Revoked,
-            store.Revoke(issuer.PeerId, id, now.AddMinutes(5), now));
+            await store.RevokeAsync(issuer.PeerId, id, now.AddMinutes(5), now));
         Assert.Equal(
             CapabilityRevocationResult.AlreadyRevoked,
-            store.Revoke(issuer.PeerId, id, now.AddMinutes(10), now));
-        Assert.True(store.IsRevoked(issuer.PeerId, id, now.AddMinutes(7)));
+            await store.RevokeAsync(issuer.PeerId, id, now.AddMinutes(10), now));
+        Assert.True(await store.IsRevokedAsync(issuer.PeerId, id, now.AddMinutes(7)));
     }
 
     [Fact]
-    public void Revoke_RejectsNewEntriesAtPerIssuerCapacity()
+    public async Task Revoke_RejectsNewEntriesAtPerIssuerCapacity()
     {
         var store = new CapabilityRevocationStore();
         using var issuer = PeerIdentity.Generate();
@@ -53,11 +53,11 @@ public sealed class CapabilityRevocationStoreTests
             var id = index.ToString("x32");
             Assert.Equal(
                 CapabilityRevocationResult.Revoked,
-                store.Revoke(issuer.PeerId, id, now.AddDays(1), now));
+                await store.RevokeAsync(issuer.PeerId, id, now.AddDays(1), now));
         }
 
         Assert.Equal(
             CapabilityRevocationResult.CapacityExceeded,
-            store.Revoke(issuer.PeerId, new string('f', 32), now.AddDays(1), now));
+            await store.RevokeAsync(issuer.PeerId, new string('f', 32), now.AddDays(1), now));
     }
 }
