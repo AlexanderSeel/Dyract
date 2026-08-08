@@ -1,4 +1,4 @@
-using Dyract.Client;
+using Dyract.Protocol;
 using Microsoft.Maui.ApplicationModel;
 using ZXing.Net.Maui;
 
