@@ -53,6 +53,7 @@ docs/
   signaling.md
   transport-spike.md
   local-storage-migrations.md
+  server-database-migrations.md
   capability-revocation.md
 ```
 
@@ -71,13 +72,19 @@ Implemented:
 - [x] reusable .NET directory client.
 - [x] in-memory identity store for local/test use.
 - [x] optional PostgreSQL identity store.
+- [x] ordered PostgreSQL schema migration ledger.
+- [x] PostgreSQL advisory-lock serialization for concurrent migrators.
+- [x] existing identity-table shape validation before adoption.
+- [x] PostgreSQL 18 integration CI.
 - [x] ASP.NET integration tests.
 
 Remaining:
 
-- [ ] explicit PostgreSQL migrations instead of prototype table bootstrap.
-- [ ] PostgreSQL integration CI.
-- [ ] production secret management and privacy-aware observability.
+- [ ] production secret management.
+- [ ] privacy-aware structured logs/metrics/retention.
+- [ ] server metadata backup/restore policy.
+
+See `docs/server-database-migrations.md`.
 
 ## 5. Phase 1 — contact authorization, presence and signaling
 
@@ -97,8 +104,10 @@ dyract://contact/v1/...
 - [x] QR rendering/scanning.
 - [x] scanner accepts only structurally valid Dyract contact/pairing payloads.
 - [x] QR scanning never bypasses normal cryptographic verification.
+- [x] Android Release compilation of QR path.
+- [x] iOS simulator Release compilation of QR/camera path.
 
-Android QR code paths are Release-CI validated. iOS camera/QR wiring exists; iOS build/runtime validation is still required.
+Physical camera/scanner runtime still needs device validation on both platforms.
 
 ### Reachability capability
 
@@ -121,7 +130,7 @@ dyract://pair/v1/...
 - [x] server revocation metadata omits the grantee/contact graph.
 - [x] per-issuer active revocation bound (512 prototype limit).
 
-Prototype limitation: revocations are currently in-memory server state. Before horizontally scaled production use they must move to TTL-capable shared state (for example Redis) so process restart cannot resurrect a revoked grant.
+Prototype limitation: revocations are currently in-memory server state. Before horizontally scaled production use they must move to TTL-capable shared state so process restart cannot resurrect a revoked grant.
 
 See `docs/capability-revocation.md`.
 
@@ -149,7 +158,7 @@ See `docs/capability-revocation.md`.
 
 ## 6. Phase 2 — local mobile foundation
 
-**Status: functional Android local/offline messenger foundation; iOS validation still incomplete.**
+**Status: Android and iOS shipping-app code both compile in Release CI; physical/runtime validation remains.**
 
 ### Identity/security
 
@@ -160,9 +169,14 @@ See `docs/capability-revocation.md`.
 - [x] unreadable identity is not silently replaced.
 - [x] Android app backup disabled.
 - [x] identity fingerprint/Peer ID UI.
+- [x] Android Release CI.
+- [x] iOS `iossimulator-arm64` Release CI on macOS 26 / Xcode 26.6.
+- [x] current Android and iOS shipping builds are warning-clean.
 
 Remaining:
 
+- [ ] physical-device iOS runtime validation.
+- [ ] physical-device QR/camera validation.
 - [ ] non-exportable platform-native identity-key evaluation.
 - [ ] Secure Enclave evaluation.
 - [ ] encrypted identity export/recovery.
@@ -174,7 +188,7 @@ Remaining:
 - [x] independent 256-bit local-data key.
 - [x] AES-256-GCM content-field encryption.
 - [x] wrong-key tests.
-- [x] patched native SQLite bundle pinned.
+- [x] SQLitePCLRaw native bundle updated to 3.0.5 and cross-platform CI validated.
 - [x] formal append-only migration ledger.
 - [x] migration 1 adopts historical v1.
 - [x] real v1 -> v2 migration.
@@ -198,12 +212,13 @@ See `docs/local-storage-migrations.md`.
 - [x] local conversation screen.
 - [x] locally queued text messages.
 - [x] capability-protected reachability check.
+- [x] compiled XAML bindings for contact/message list templates.
 
 Remaining:
 
 - [ ] recovery/security settings screen.
 - [ ] accessibility/polish/localization.
-- [ ] iOS compile/runtime validation.
+- [ ] physical iOS UX/runtime validation.
 
 ## 7. Phase 3 — direct connectivity spike
 
@@ -247,13 +262,14 @@ Do **not** move FsWebRTC into the shipping app yet.
 - [ ] foreground/background lifecycle.
 - [ ] close/reconnect behavior.
 - [ ] TURN/AllowRelay after DirectOnly evidence.
+- [ ] iOS WebRTC transport adapter.
 - [ ] Android -> iPhone.
 
 Record only candidate classes/transport, selected path, connection stage and RTTs; never raw candidate/IP data.
 
 ### FsWebRTC production blocker
 
-Current Android builds expose `XA0141`: the bundled `libjingle_peerconnection_so.so` does not satisfy Android's 16 KiB page-size requirement. FsWebRTC remains experimental until that is fixed upstream/replaced and physical behavior is acceptable.
+Current Android harness builds expose `XA0141`: the bundled `libjingle_peerconnection_so.so` does not satisfy Android's 16 KiB page-size requirement. The native probe itself is warning-clean; the remaining warning comes from the FsWebRTC native library packaged by the harness. FsWebRTC remains experimental until this is fixed upstream/replaced and physical behavior is acceptable.
 
 ## 8. Phase 4 — authenticated encrypted peer sessions
 
@@ -336,14 +352,19 @@ See `docs/reliable-messaging.md`.
 ## 12. Phase 8 — production infrastructure
 
 - [x] optional PostgreSQL identity store.
+- [x] ordered PostgreSQL schema migrations.
+- [x] PostgreSQL table-shape adoption validation.
+- [x] PostgreSQL advisory locking for concurrent application startup.
+- [x] PostgreSQL 18 migration integration CI.
 - [x] request/rate controls.
-- [ ] explicit server DB migrations + PostgreSQL CI.
 - [ ] Redis/shared TTL state for presence, replay, signaling and revocations.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
 - [ ] secret/key management.
 - [ ] privacy-aware logs/metrics/retention.
 - [ ] server metadata backup/restore policy.
+
+See `docs/server-database-migrations.md`.
 
 ## 13. Phase 9 — security hardening
 
@@ -378,8 +399,8 @@ Transport-dependent product work remains gated by physical evidence.
 2. Record observed candidate categories, selected path, authenticated-session result, `DYRT` RTT and `DYRM` ACK RTT.
 3. Repeat across NAT/cellular/IPv6/network transitions.
 4. Decide FsWebRTC viability versus the 16 KiB native-library blocker.
-5. Add real macOS/iOS CI and compile the existing MAUI iOS code path.
+5. Validate the shipping iOS UI/QR/SecureStorage path on a physical iPhone.
 6. If Android transport is viable, implement the production Android transport/frame sender and lifecycle-safe outbox scheduler.
-7. Implement/validate the corresponding iOS transport and Android->iPhone matrix.
+7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Move ephemeral server state, including capability revocations, to shared TTL infrastructure before horizontal production deployment.
-9. Continue recovery UX, server DB migrations, fuzzing and independent security review in parallel.
+9. Continue recovery UX, fuzzing, threat modeling and independent security review in parallel.
