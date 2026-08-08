@@ -3,13 +3,29 @@ using Dyract.Core.Identity;
 
 namespace Dyract.Server.Services;
 
-public sealed class ReplayNonceStore
+public interface IReplayNonceStore
 {
-    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+    ValueTask<bool> TryAcceptAsync(
+        PeerId requester,
+        string nonce,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class ReplayNonceStore : IReplayNonceStore
+{
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+
     private readonly ConcurrentDictionary<string, long> _nonces = new(StringComparer.Ordinal);
 
-    public bool TryAccept(PeerId requester, string nonce, DateTimeOffset now)
+    public ValueTask<bool> TryAcceptAsync(
+        PeerId requester,
+        string nonce,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         foreach (var item in _nonces)
         {
             if (item.Value <= now.ToUnixTimeSeconds())
@@ -20,6 +36,6 @@ public sealed class ReplayNonceStore
 
         var key = $"{requester.Value}:{nonce}";
         var expires = now.Add(Lifetime).ToUnixTimeSeconds();
-        return _nonces.TryAdd(key, expires);
+        return ValueTask.FromResult(_nonces.TryAdd(key, expires));
     }
 }
