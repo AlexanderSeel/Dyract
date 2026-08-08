@@ -3,6 +3,7 @@
     x:Class="Dyract.App.MainPage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:storage="clr-namespace:Dyract.Storage;assembly=Dyract.Storage"
     Title="Dyract">
 
     <ScrollView>
@@ -132,7 +133,7 @@
                 SelectionChanged="OnContactSelected"
                 SelectionMode="Single">
                 <CollectionView.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="storage:LocalContact">
                         <Border Margin="0,4" Padding="14" StrokeThickness="1">
                             <Border.StrokeShape>
                                 <RoundRectangle CornerRadius="12" />
