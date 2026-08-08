@@ -46,6 +46,7 @@ if (string.IsNullOrWhiteSpace(redisConnectionString))
     builder.Services.AddSingleton<IPresenceStore, PresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, ReplayNonceStore>();
     builder.Services.AddSingleton<ISignalStore, SignalStore>();
+    builder.Services.AddSingleton<IGlobalRequestLimiter, NoOpGlobalRequestLimiter>();
 }
 else
 {
@@ -57,6 +58,7 @@ else
     builder.Services.AddSingleton<IPresenceStore, RedisPresenceStore>();
     builder.Services.AddSingleton<IReplayNonceStore, RedisReplayNonceStore>();
     builder.Services.AddSingleton<ISignalStore, RedisSignalStore>();
+    builder.Services.AddSingleton<IGlobalRequestLimiter, RedisGlobalRequestLimiter>();
     builder.Services.AddHostedService<RedisTransientStateInitializer>();
 }
 
@@ -115,6 +117,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
+app.UseMiddleware<GlobalRequestRateLimitMiddleware>();
 app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new
