@@ -1,18 +1,11 @@
 using System.Security.Cryptography;
 using Dyract.Core.Identity;
-using Dyract.Protocol;
 
 namespace Dyract.Server.Services;
 
-public sealed class SignalStore
+public interface ISignalStore
 {
-    public const int MaximumPendingPerPeer = 64;
-    public const int MaximumFetchCount = 20;
-
-    private readonly object _gate = new();
-    private readonly Dictionary<string, List<StoredPeerSignal>> _signals = new(StringComparer.Ordinal);
-
-    public bool TryEnqueue(
+    ValueTask<StoredPeerSignal?> TryEnqueueAsync(
         PeerId senderPeerId,
         PeerId targetPeerId,
         string sessionId,
@@ -20,8 +13,41 @@ public sealed class SignalStore
         string payload,
         DateTimeOffset createdAt,
         DateTimeOffset expiresAt,
-        out StoredPeerSignal signal)
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<StoredPeerSignal>> FetchAsync(
+        PeerId targetPeerId,
+        DateTimeOffset now,
+        int limit = SignalStore.MaximumFetchCount,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<int> AcknowledgeAsync(
+        PeerId targetPeerId,
+        IReadOnlyCollection<string> signalIds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class SignalStore : ISignalStore
+{
+    public const int MaximumPendingPerPeer = 64;
+    public const int MaximumFetchCount = 20;
+
+    private readonly object _gate = new();
+    private readonly Dictionary<string, List<StoredPeerSignal>> _signals = new(StringComparer.Ordinal);
+
+    public ValueTask<StoredPeerSignal?> TryEnqueueAsync(
+        PeerId senderPeerId,
+        PeerId targetPeerId,
+        string sessionId,
+        string signalType,
+        string payload,
+        DateTimeOffset createdAt,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         lock (_gate)
         {
             PurgeExpired(createdAt);
@@ -34,11 +60,10 @@ public sealed class SignalStore
 
             if (inbox.Count >= MaximumPendingPerPeer)
             {
-                signal = default!;
-                return false;
+                return ValueTask.FromResult<StoredPeerSignal?>(null);
             }
 
-            signal = new StoredPeerSignal(
+            var signal = new StoredPeerSignal(
                 Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
                 senderPeerId,
                 targetPeerId,
@@ -48,15 +73,17 @@ public sealed class SignalStore
                 createdAt,
                 expiresAt);
             inbox.Add(signal);
-            return true;
+            return ValueTask.FromResult<StoredPeerSignal?>(signal);
         }
     }
 
-    public IReadOnlyList<StoredPeerSignal> Fetch(
+    public ValueTask<IReadOnlyList<StoredPeerSignal>> FetchAsync(
         PeerId targetPeerId,
         DateTimeOffset now,
-        int limit = MaximumFetchCount)
+        int limit = MaximumFetchCount,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (limit is < 1 or > MaximumFetchCount)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
@@ -68,26 +95,29 @@ public sealed class SignalStore
 
             if (!_signals.TryGetValue(targetPeerId.Value, out var inbox) || inbox.Count == 0)
             {
-                return Array.Empty<StoredPeerSignal>();
+                return ValueTask.FromResult<IReadOnlyList<StoredPeerSignal>>(Array.Empty<StoredPeerSignal>());
             }
 
-            return inbox
+            IReadOnlyList<StoredPeerSignal> result = inbox
                 .OrderBy(signal => signal.CreatedAt)
                 .ThenBy(signal => signal.SignalId, StringComparer.Ordinal)
                 .Take(limit)
                 .ToArray();
+            return ValueTask.FromResult(result);
         }
     }
 
-    public int Acknowledge(
+    public ValueTask<int> AcknowledgeAsync(
         PeerId targetPeerId,
         IReadOnlyCollection<string> signalIds,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(signalIds);
         if (signalIds.Count == 0)
         {
-            return 0;
+            return ValueTask.FromResult(0);
         }
 
         var ids = new HashSet<string>(signalIds, StringComparer.Ordinal);
@@ -97,7 +127,7 @@ public sealed class SignalStore
 
             if (!_signals.TryGetValue(targetPeerId.Value, out var inbox))
             {
-                return 0;
+                return ValueTask.FromResult(0);
             }
 
             var removed = inbox.RemoveAll(signal => ids.Contains(signal.SignalId));
@@ -106,7 +136,7 @@ public sealed class SignalStore
                 _signals.Remove(targetPeerId.Value);
             }
 
-            return removed;
+            return ValueTask.FromResult(removed);
         }
     }
 
