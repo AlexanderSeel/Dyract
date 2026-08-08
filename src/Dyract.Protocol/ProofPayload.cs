@@ -49,6 +49,21 @@ public static class ProofPayload
             $"dyract:contact-capability:v1\n{issuerPeerId}\n{granteePeerId}\n{capabilityId}\n{issuedUnixSeconds}\n{expiresUnixSeconds}");
     }
 
+    public static byte[] ForContactCapabilityRevocation(
+        string issuerPeerId,
+        string capabilityId,
+        long capabilityExpiresUnixSeconds,
+        long timestampUnixSeconds,
+        string nonce)
+    {
+        ValidateField(issuerPeerId, nameof(issuerPeerId));
+        ValidateField(capabilityId, nameof(capabilityId));
+        ValidateField(nonce, nameof(nonce));
+
+        return Encoding.UTF8.GetBytes(
+            $"dyract:contact-capability-revoke:v1\n{issuerPeerId}\n{capabilityId}\n{capabilityExpiresUnixSeconds}\n{timestampUnixSeconds}\n{nonce}");
+    }
+
     public static byte[] ForPresence(
         string peerId,
         IReadOnlyList<ConnectionCandidate> candidates,
