@@ -39,6 +39,14 @@ public sealed record ContactCapability(
     long ExpiresUnixSeconds,
     string Signature);
 
+public sealed record RevokeContactCapabilityRequest(
+    string IssuerPeerId,
+    string CapabilityId,
+    long CapabilityExpiresUnixSeconds,
+    long TimestampUnixSeconds,
+    string Nonce,
+    string Signature);
+
 public sealed record ConnectionCandidate(
     string Kind,
     string Protocol,
