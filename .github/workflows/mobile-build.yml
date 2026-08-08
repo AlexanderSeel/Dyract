@@ -16,6 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
 
+# Validation marker: compiled XAML bindings and SQLitePCLRaw 3.0.5 on Android.
 concurrency:
   group: mobile-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
