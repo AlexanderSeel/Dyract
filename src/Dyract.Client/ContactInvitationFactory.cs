@@ -5,7 +5,7 @@ namespace Dyract.Client;
 
 public static class ContactInvitationFactory
 {
-    public static string Create(PeerIdentity identity, TimeProvider? timeProvider = null)
+    public static string Create(IPeerIdentitySigner identity, TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
