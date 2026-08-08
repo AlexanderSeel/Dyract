@@ -46,11 +46,20 @@
                             IsEnabled="False"
                             Text="Copy invite" />
                     </HorizontalStackLayout>
-                    <Button
-                        x:Name="ShowInviteQrButton"
-                        Clicked="OnShowInviteQrClicked"
-                        IsEnabled="False"
-                        Text="Show my contact QR" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Button
+                            x:Name="ShowInviteQrButton"
+                            Grid.Column="0"
+                            Clicked="OnShowInviteQrClicked"
+                            IsEnabled="False"
+                            Text="Show contact QR" />
+                        <Button
+                            x:Name="SecuritySettingsButton"
+                            Grid.Column="1"
+                            Clicked="OnSecuritySettingsClicked"
+                            IsEnabled="False"
+                            Text="Security &amp; recovery" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 
