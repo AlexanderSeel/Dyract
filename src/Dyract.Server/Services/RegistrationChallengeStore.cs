@@ -4,13 +4,37 @@ using Dyract.Core.Identity;
 
 namespace Dyract.Server.Services;
 
-public sealed class RegistrationChallengeStore
+public interface IRegistrationChallengeStore
 {
-    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
+    ValueTask<RegistrationChallenge> CreateAsync(
+        PeerId peerId,
+        byte[] publicKey,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<RegistrationChallenge?> GetAsync(
+        string challengeId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> TryConsumeAsync(
+        string challengeId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class RegistrationChallengeStore : IRegistrationChallengeStore
+{
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
+
     private readonly ConcurrentDictionary<string, RegistrationChallenge> _challenges = new(StringComparer.Ordinal);
 
-    public RegistrationChallenge Create(PeerId peerId, byte[] publicKey, DateTimeOffset now)
+    public ValueTask<RegistrationChallenge> CreateAsync(
+        PeerId peerId,
+        byte[] publicKey,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(publicKey);
 
         while (true)
@@ -24,30 +48,43 @@ public sealed class RegistrationChallengeStore
 
             if (_challenges.TryAdd(challenge.Id, challenge))
             {
-                return challenge;
+                return ValueTask.FromResult(challenge);
             }
         }
     }
 
-    public bool TryGet(string challengeId, DateTimeOffset now, out RegistrationChallenge challenge)
+    public ValueTask<RegistrationChallenge?> GetAsync(
+        string challengeId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
-        if (!_challenges.TryGetValue(challengeId, out challenge!))
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_challenges.TryGetValue(challengeId, out var challenge))
         {
-            return false;
+            return ValueTask.FromResult<RegistrationChallenge?>(null);
         }
 
         if (challenge.ExpiresAt > now)
         {
-            return true;
+            return ValueTask.FromResult<RegistrationChallenge?>(
+                challenge with
+                {
+                    PublicKey = challenge.PublicKey.ToArray(),
+                    ChallengeBytes = challenge.ChallengeBytes.ToArray()
+                });
         }
 
         _challenges.TryRemove(challengeId, out _);
-        challenge = null!;
-        return false;
+        return ValueTask.FromResult<RegistrationChallenge?>(null);
     }
 
-    public bool TryConsume(string challengeId)
-        => _challenges.TryRemove(challengeId, out _);
+    public ValueTask<bool> TryConsumeAsync(
+        string challengeId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(_challenges.TryRemove(challengeId, out _));
+    }
 }
 
 public sealed record RegistrationChallenge(
