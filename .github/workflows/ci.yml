@@ -9,7 +9,7 @@ on:
     branches:
       - main
 
-# Validation marker: QR onboarding plus formal SQLite migration ledger/tests.
+# Validation marker: QR onboarding plus SQLite migration ledger after provider transaction fix.
 concurrency:
   group: core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
