@@ -8,7 +8,7 @@ namespace Dyract.Client;
 public static class ContactCapabilityFactory
 {
     public static ContactCapability Create(
-        PeerIdentity issuer,
+        IPeerIdentitySigner issuer,
         string granteePeerId,
         TimeSpan lifetime,
         TimeProvider? timeProvider = null)
