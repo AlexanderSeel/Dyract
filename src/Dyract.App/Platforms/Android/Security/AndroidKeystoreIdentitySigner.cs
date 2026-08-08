@@ -145,7 +145,9 @@ public sealed class AndroidKeystoreIdentitySigner : IPeerIdentitySigner, IDispos
         {
             generator.Initialize(parameters);
             using var keyPair = generator.GenerateKeyPair();
-            if (keyPair?.Public is null || keyPair.Private is null)
+            var generatedPublicKey = keyPair?.Public;
+            var generatedPrivateKey = keyPair?.Private;
+            if (generatedPublicKey is null || generatedPrivateKey is null)
             {
                 throw new CryptographicException("AndroidKeyStore failed to generate the Dyract identity key pair.");
             }
@@ -161,7 +163,7 @@ public sealed class AndroidKeystoreIdentitySigner : IPeerIdentitySigner, IDispos
 
         try
         {
-            var reader = new AsnReader(derSignature, AsnEncodingRules.DER);
+            var reader = new AsnReader(derSignature.ToArray(), AsnEncodingRules.DER);
             var sequence = reader.ReadSequence();
             var r = sequence.ReadInteger();
             var s = sequence.ReadInteger();
