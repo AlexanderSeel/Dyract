@@ -11,6 +11,41 @@ public sealed class RedisTransientStateTests
     private const string ConnectionEnvironmentVariable = "DYRACT_REDIS_TEST_CONNECTION";
 
     [Fact]
+    public async Task RegistrationChallenge_IsSharedConsumedAndExpiredAcrossInstances()
+    {
+        var connectionString = GetConnectionStringOrSkip();
+        if (connectionString is null)
+        {
+            return;
+        }
+
+        using var connection = await ConnectionMultiplexer.ConnectAsync(connectionString);
+        var prefix = $"dyract:test:{Guid.NewGuid():N}";
+        var first = new RedisRegistrationChallengeStore(connection, prefix);
+        var second = new RedisRegistrationChallengeStore(connection, prefix);
+        using var identity = PeerIdentity.Generate();
+        var now = DateTimeOffset.UtcNow;
+        var publicKey = identity.ExportPublicKey();
+
+        var challenge = await first.CreateAsync(identity.PeerId, publicKey, now);
+        var fromSecondInstance = await second.GetAsync(challenge.Id, now.AddSeconds(1));
+        Assert.NotNull(fromSecondInstance);
+        Assert.Equal(identity.PeerId, fromSecondInstance.PeerId);
+        Assert.Equal(publicKey, fromSecondInstance.PublicKey);
+        Assert.Equal(challenge.ChallengeBytes, fromSecondInstance.ChallengeBytes);
+
+        Assert.True(await second.TryConsumeAsync(challenge.Id));
+        Assert.Null(await first.GetAsync(challenge.Id, now.AddSeconds(2)));
+        Assert.False(await first.TryConsumeAsync(challenge.Id));
+
+        var expiring = await first.CreateAsync(identity.PeerId, publicKey, now);
+        Assert.Null(await second.GetAsync(
+            expiring.Id,
+            now.Add(RegistrationChallengeStore.Lifetime).AddSeconds(1)));
+        Assert.False(await first.TryConsumeAsync(expiring.Id));
+    }
+
+    [Fact]
     public async Task Presence_IsSharedAcrossStoreInstancesAndCanBeRemoved()
     {
         var connectionString = GetConnectionStringOrSkip();
