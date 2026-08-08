@@ -80,3 +80,5 @@ jobs:
           dotnet test tests/Dyract.Tests/Dyract.Tests.csproj
           --configuration Release
           --filter FullyQualifiedName~PostgresSchemaMigrationTests
+
+# Validation marker: durable revocations plus startup schema-drift checks.
