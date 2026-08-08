@@ -103,6 +103,8 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+app.UseMiddleware<DirectoryTelemetryMiddleware>();
+
 app.Use(async (context, next) =>
 {
     if (context.Request.ContentLength is > MaxRequestBodyBytes)
