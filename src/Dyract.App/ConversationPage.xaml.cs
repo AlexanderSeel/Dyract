@@ -9,8 +9,7 @@ namespace Dyract.App;
 
 public partial class ConversationPage : ContentPage
 {
-    private static readonly TimeSpan PairingLifetime = TimeSpan.FromDays(30);
-    private static readonly TimeSpan PairingRenewalWindow = TimeSpan.FromDays(1);
+    private static readonly TimeSpan PairingLifetime = ContactCapabilityPolicy.DefaultLifetime;
 
     private readonly ILocalStore _localStore;
     private readonly IIdentityVault _identityVault;
@@ -18,11 +17,13 @@ public partial class ConversationPage : ContentPage
     private readonly IDirectoryService _directoryService;
     private readonly LocalContact _contact;
     private LocalConversation? _conversation;
+    private ContactCapability? _issuedCapability;
     private string? _ownPeerId;
     private bool _initialized;
     private bool _sending;
     private bool _resolving;
     private bool _creatingPairing;
+    private bool _revokingGrant;
 
     public ConversationPage(
         ILocalStore localStore,
@@ -57,6 +58,7 @@ public partial class ConversationPage : ContentPage
             }
 
             await LoadMessagesAsync();
+            await RefreshIssuedGrantStateAsync();
             UpdateReachabilityButton();
         }
         catch (Exception exception)
@@ -66,6 +68,7 @@ public partial class ConversationPage : ContentPage
             CopyPairingResponseButton.IsEnabled = false;
             ShowPairingQrButton.IsEnabled = false;
             ResolveContactButton.IsEnabled = false;
+            RevokeMyGrantButton.IsEnabled = false;
         }
     }
 
@@ -97,6 +100,40 @@ public partial class ConversationPage : ContentPage
         {
             MessagesView.ScrollTo(messages[^1], position: ScrollToPosition.End, animate: false);
         }
+    }
+
+    private async Task RefreshIssuedGrantStateAsync()
+    {
+        var encoded = await _issuedCapabilityStore.GetIssuedCapabilityAsync(_contact.PeerId);
+        if (string.IsNullOrWhiteSpace(encoded))
+        {
+            _issuedCapability = null;
+            IssuedGrantStateLabel.Text = "They do not currently have a tracked reachability grant from you.";
+            UpdateRevokeButton();
+            return;
+        }
+
+        if (!ContactPairingCodec.TryDecode(encoded, out var capability, out _) || capability is null)
+        {
+            _issuedCapability = null;
+            IssuedGrantStateLabel.Text = "Your locally tracked grant is unreadable. Do not issue another grant until this is reviewed.";
+            UpdateRevokeButton();
+            return;
+        }
+
+        var expiresAt = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds);
+        if (expiresAt <= DateTimeOffset.UtcNow)
+        {
+            await _issuedCapabilityStore.ClearIssuedCapabilityAsync(_contact.PeerId);
+            _issuedCapability = null;
+            IssuedGrantStateLabel.Text = "Your previous reachability grant to this contact has expired.";
+            UpdateRevokeButton();
+            return;
+        }
+
+        _issuedCapability = capability;
+        IssuedGrantStateLabel.Text = $"They may resolve you until {expiresAt.ToLocalTime():g}.";
+        UpdateRevokeButton();
     }
 
     private async void OnCopyPairingResponseClicked(object? sender, EventArgs e)
@@ -156,7 +193,6 @@ public partial class ConversationPage : ContentPage
     private async Task<(string Response, DateTimeOffset ExpiresAt)> GetOrCreatePairingResponseAsync()
     {
         using var identity = await _identityVault.GetOrCreateAsync();
-        var now = DateTimeOffset.UtcNow;
         var existingResponse = await _issuedCapabilityStore.GetIssuedCapabilityAsync(_contact.PeerId);
 
         if (!string.IsNullOrWhiteSpace(existingResponse) &&
@@ -166,9 +202,10 @@ public partial class ConversationPage : ContentPage
                 existingCapability,
                 identity.ExportPublicKey(),
                 _contact.PeerId,
-                out _) &&
-            DateTimeOffset.FromUnixTimeSeconds(existingCapability.ExpiresUnixSeconds) > now.Add(PairingRenewalWindow))
+                out _))
         {
+            _issuedCapability = existingCapability;
+            UpdateIssuedGrantLabel(existingCapability);
             return (
                 existingResponse,
                 DateTimeOffset.FromUnixTimeSeconds(existingCapability.ExpiresUnixSeconds));
@@ -180,10 +217,64 @@ public partial class ConversationPage : ContentPage
             PairingLifetime);
         var response = ContactPairingCodec.Encode(capability);
         await _issuedCapabilityStore.SaveIssuedCapabilityAsync(_contact.PeerId, response);
+        _issuedCapability = capability;
+        UpdateIssuedGrantLabel(capability);
 
         return (
             response,
             DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds));
+    }
+
+    private async void OnRevokeMyGrantClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _revokingGrant || _issuedCapability is null)
+        {
+            return;
+        }
+
+        if (_directoryService.ConfiguredBaseUri is null)
+        {
+            ConversationStatusLabel.Text = "Configure the directory before revoking an active reachability grant.";
+            return;
+        }
+
+        var confirmed = await DisplayAlert(
+            "Revoke reachability grant?",
+            $"This will stop {_contact.DisplayName} from using the currently tracked capability to resolve or signal you. It will not delete the contact or remove their grant to you.",
+            "Revoke",
+            "Cancel");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _revokingGrant = true;
+        UpdateRevokeButton();
+        try
+        {
+            var capability = _issuedCapability;
+            await _directoryService.RevokeIssuedCapabilityAsync(capability);
+            await _issuedCapabilityStore.ClearIssuedCapabilityAsync(_contact.PeerId);
+            _issuedCapability = null;
+            IssuedGrantStateLabel.Text = "Your reachability grant to this contact has been revoked.";
+            ConversationStatusLabel.Text = "Grant revoked. The next pairing response or QR you create for this contact will use a new capability ID.";
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Grant revocation failed: {exception.Message}";
+        }
+        finally
+        {
+            _revokingGrant = false;
+            UpdateRevokeButton();
+        }
+    }
+
+    private void UpdateIssuedGrantLabel(ContactCapability capability)
+    {
+        var expiry = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds).ToLocalTime();
+        IssuedGrantStateLabel.Text = $"They may resolve you until {expiry:g}.";
+        UpdateRevokeButton();
     }
 
     private void SetPairingBusy(bool busy)
@@ -279,6 +370,15 @@ public partial class ConversationPage : ContentPage
             _initialized &&
             !_resolving &&
             _contact.Capability is not null &&
+            _directoryService.ConfiguredBaseUri is not null;
+    }
+
+    private void UpdateRevokeButton()
+    {
+        RevokeMyGrantButton.IsEnabled =
+            _initialized &&
+            !_revokingGrant &&
+            _issuedCapability is not null &&
             _directoryService.ConfiguredBaseUri is not null;
     }
 
