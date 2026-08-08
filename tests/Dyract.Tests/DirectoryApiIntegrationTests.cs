@@ -80,6 +80,40 @@ public sealed class DirectoryApiIntegrationTests
     }
 
     [Fact]
+    public async Task RevokedCapability_CannotResolve_AndNewCapabilityStillWorks()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var httpClient = factory.CreateClient();
+        var directory = new DirectoryClient(httpClient);
+        using var alice = PeerIdentity.Generate();
+        using var bob = PeerIdentity.Generate();
+
+        await directory.RegisterAsync(alice);
+        await directory.RegisterAsync(bob);
+
+        var revokedCapability = ContactCapabilityFactory.Create(
+            bob,
+            alice.PeerId.Value,
+            TimeSpan.FromMinutes(10));
+
+        await directory.ResolveAsync(alice, bob.PeerId.Value, revokedCapability);
+        await directory.RevokeContactCapabilityAsync(bob, revokedCapability);
+        await directory.RevokeContactCapabilityAsync(bob, revokedCapability);
+
+        var revokedException = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            directory.ResolveAsync(alice, bob.PeerId.Value, revokedCapability));
+        Assert.Equal(HttpStatusCode.Unauthorized, revokedException.StatusCode);
+        Assert.Contains("capability_revoked", revokedException.Message, StringComparison.Ordinal);
+
+        var replacement = ContactCapabilityFactory.Create(
+            bob,
+            alice.PeerId.Value,
+            TimeSpan.FromMinutes(10));
+        var resolved = await directory.ResolveAsync(alice, bob.PeerId.Value, replacement);
+        Assert.Equal(bob.PeerId.Value, resolved.PeerId);
+    }
+
+    [Fact]
     public async Task Resolve_WithCapabilityForAnotherGrantee_IsRejected()
     {
         using var factory = new WebApplicationFactory<Program>();
@@ -149,6 +183,37 @@ public sealed class DirectoryApiIntegrationTests
 
         var afterAck = await signaling.FetchAsync(bob);
         Assert.Empty(afterAck.Signals);
+    }
+
+    [Fact]
+    public async Task RevokedCapability_CannotSendSignal()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var httpClient = factory.CreateClient();
+        var directory = new DirectoryClient(httpClient);
+        var signaling = new PeerSignalingClient(httpClient);
+        using var alice = PeerIdentity.Generate();
+        using var bob = PeerIdentity.Generate();
+
+        await directory.RegisterAsync(alice);
+        await directory.RegisterAsync(bob);
+
+        var capability = ContactCapabilityFactory.Create(
+            bob,
+            alice.PeerId.Value,
+            TimeSpan.FromMinutes(10));
+        await directory.RevokeContactCapabilityAsync(bob, capability);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => signaling.SendAsync(
+            alice,
+            bob.PeerId.Value,
+            capability,
+            PeerSignalingClient.CreateSessionId(),
+            PeerSignalTypes.Offer,
+            "opaque"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        Assert.Contains("capability_revoked", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
