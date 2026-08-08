@@ -57,6 +57,7 @@ docs/
   server-database-migrations.md
   capability-revocation.md
   redis-transient-state.md
+  threat-model.md
 ```
 
 ## 4. Phase 0 — identity and directory bootstrap
@@ -399,7 +400,8 @@ See `docs/server-database-migrations.md` and `docs/redis-transient-state.md`.
 
 Before public production use:
 
-- [ ] formal STRIDE + metadata/privacy threat model.
+- [x] repository STRIDE + metadata/privacy threat model.
+- [ ] independent threat-model/security review.
 - [ ] API penetration testing.
 - [ ] protocol fuzz/property tests.
 - [ ] system-level replay/downgrade/session-collision tests.
@@ -408,6 +410,8 @@ Before public production use:
 - [ ] SBOM/dependency automation.
 - [ ] independent cryptographic review.
 - [ ] mobile secure-storage review.
+
+See `docs/threat-model.md`.
 
 ## 14. Deferred until one-to-one messaging is proven
 
@@ -432,4 +436,4 @@ Transport-dependent product work remains gated by physical evidence.
 6. If Android transport is viable, implement the production Android transport/frame sender and lifecycle-safe outbox scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Add production Redis security/deployment policy and distributed abuse controls before horizontal deployment.
-9. Continue recovery UX, fuzzing, threat modeling, SBOM automation and independent security review in parallel.
+9. Add SBOM/dependency automation and continue fuzzing, recovery analysis, independent threat-model/security review and cryptographic review in parallel.
