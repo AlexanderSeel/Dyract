@@ -201,6 +201,32 @@ public sealed class PostgresSchemaMigrationTests
     }
 
     [Fact]
+    public async Task RecordedSchemaDrift_IsRejectedOnSubsequentStartup()
+    {
+        var baseConnectionString = GetConnectionStringOrSkip();
+        if (baseConnectionString is null)
+        {
+            return;
+        }
+
+        await using var scope = await PostgresTestSchema.CreateAsync(baseConnectionString);
+        await using var dataSource = NpgsqlDataSource.Create(scope.ConnectionString);
+        var migrator = new PostgresSchemaMigrator(dataSource);
+        await migrator.ApplyAsync();
+
+        await using (var connection = await dataSource.OpenConnectionAsync())
+        await using (var command = new NpgsqlCommand(
+                         "ALTER TABLE capability_revocation ADD COLUMN grantee_peer_id text NULL;",
+                         connection))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => migrator.ApplyAsync());
+        Assert.Contains("metadata-minimized", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task FutureMigrationVersion_IsRejected()
     {
         var baseConnectionString = GetConnectionStringOrSkip();
