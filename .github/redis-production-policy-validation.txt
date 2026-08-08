@@ -1,0 +1,1 @@
+Transient CI marker for current Redis production security and observability snapshot.
