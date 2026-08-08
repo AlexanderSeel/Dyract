@@ -16,6 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/mobile-build.yml'
 
+# Validation marker: issued-grant tracking/revocation UX and schema v2 migration.
 concurrency:
   group: mobile-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
