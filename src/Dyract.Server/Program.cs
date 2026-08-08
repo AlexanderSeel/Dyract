@@ -40,6 +40,7 @@ builder.Services.AddSingleton<RegistrationChallengeStore>();
 builder.Services.AddSingleton<ReplayNonceStore>();
 builder.Services.AddSingleton<PresenceStore>();
 builder.Services.AddSingleton<SignalStore>();
+builder.Services.AddSingleton<CapabilityRevocationStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddRateLimiter(options =>
@@ -114,6 +115,8 @@ api.MapPost("/peer/lookup", LookupPeer)
 api.MapPost("/presence", PublishPresence)
     .RequireRateLimiting("peer-operations");
 api.MapPost("/presence/remove", RemovePresence)
+    .RequireRateLimiting("peer-operations");
+api.MapPost("/capability/revoke", RevokeCapability)
     .RequireRateLimiting("peer-operations");
 api.MapPost("/peer/resolve", ResolvePeer)
     .RequireRateLimiting("peer-operations");
@@ -404,11 +407,87 @@ static async Task<IResult> RemovePresence(
     return Results.NoContent();
 }
 
+static async Task<IResult> RevokeCapability(
+    RevokeContactCapabilityRequest request,
+    IIdentityStore identities,
+    ReplayNonceStore replayNonces,
+    CapabilityRevocationStore revocations,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken)
+{
+    if (!PeerId.TryParse(request.IssuerPeerId, out var issuerId))
+    {
+        return BadRequest("invalid_peer_id", "IssuerPeerId is invalid.");
+    }
+
+    if (!IsValidCapabilityId(request.CapabilityId))
+    {
+        return BadRequest("capability_invalid", "CapabilityId must be a 128-bit hexadecimal identifier.");
+    }
+
+    var issuer = await identities.GetAsync(issuerId, cancellationToken);
+    if (issuer is null)
+    {
+        return Unauthorized("issuer_unknown", "Capability issuer is not a registered Dyract peer.");
+    }
+
+    var now = timeProvider.GetUtcNow();
+    if (!TryValidateSignedRequestMetadata(request.TimestampUnixSeconds, request.Nonce, now, out var metadataError))
+    {
+        return metadataError!;
+    }
+
+    if (!TryUnixTime(request.CapabilityExpiresUnixSeconds, out var expiresAt) ||
+        expiresAt <= now ||
+        expiresAt > now.Add(ContactCapabilityPolicy.MaximumLifetime))
+    {
+        return BadRequest("capability_expiry", "Revoked capability expiry must be in the future and within the supported capability lifetime.");
+    }
+
+    if (!TryDecodeBase64(request.Signature, 512, out var signature))
+    {
+        return BadRequest("invalid_signature", "Signature must be valid base64.");
+    }
+
+    var proof = ProofPayload.ForContactCapabilityRevocation(
+        issuerId.Value,
+        request.CapabilityId,
+        request.CapabilityExpiresUnixSeconds,
+        request.TimestampUnixSeconds,
+        request.Nonce);
+
+    if (!SignatureVerifier.Verify(issuer.PublicKey, proof, signature))
+    {
+        return Unauthorized("signature_invalid", "Capability revocation signature could not be verified.");
+    }
+
+    if (!replayNonces.TryAccept(issuerId, request.Nonce, now))
+    {
+        return Unauthorized("replay_detected", "This signed capability revocation nonce has already been used.");
+    }
+
+    var result = revocations.Revoke(issuerId, request.CapabilityId, expiresAt, now);
+    if (result == CapabilityRevocationResult.CapacityExceeded)
+    {
+        return Results.Json(
+            new ApiError("revocation_limit", "Too many active capability revocations for this issuer."),
+            statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    if (result == CapabilityRevocationResult.Expired)
+    {
+        return BadRequest("capability_expired", "Capability has already expired.");
+    }
+
+    return Results.NoContent();
+}
+
 static async Task<IResult> ResolvePeer(
     ResolvePeerRequest request,
     IIdentityStore identities,
     PresenceStore presence,
     ReplayNonceStore replayNonces,
+    CapabilityRevocationStore revocations,
     TimeProvider timeProvider,
     CancellationToken cancellationToken)
 {
@@ -463,6 +542,7 @@ static async Task<IResult> ResolvePeer(
         requesterId,
         targetId,
         target.PublicKey,
+        revocations,
         now);
 
     if (capabilityError is not null)
@@ -498,6 +578,7 @@ static IResult? ValidateContactCapability(
     PeerId requesterId,
     PeerId targetId,
     byte[] targetPublicKey,
+    CapabilityRevocationStore revocations,
     DateTimeOffset now)
 {
     if (capability.Version != 1)
@@ -516,13 +597,20 @@ static IResult? ValidateContactCapability(
         return Unauthorized("capability_invalid", "Contact capability ID is invalid.");
     }
 
-    if (!TryUnixTime(capability.IssuedUnixSeconds, out var issuedAt) ||
+    if (!ContactCapabilityPolicy.IsLifetimeAllowed(
+            capability.IssuedUnixSeconds,
+            capability.ExpiresUnixSeconds) ||
+        !TryUnixTime(capability.IssuedUnixSeconds, out var issuedAt) ||
         !TryUnixTime(capability.ExpiresUnixSeconds, out var expiresAt) ||
-        expiresAt <= issuedAt ||
         issuedAt > now.AddMinutes(2) ||
         expiresAt <= now)
     {
         return Unauthorized("capability_expired", "Contact capability is invalid or expired.");
+    }
+
+    if (revocations.IsRevoked(targetId, capability.CapabilityId, now))
+    {
+        return Unauthorized("capability_revoked", "Contact capability has been revoked by its issuer.");
     }
 
     if (!TryDecodeBase64(capability.Signature, 512, out var capabilitySignature))
@@ -647,7 +735,7 @@ static bool IsUnsafeAddress(IPAddress address)
 }
 
 static bool IsValidCapabilityId(string? value)
-    => value is { Length: 32 } && value.All(Uri.IsHexDigit);
+    => value is { Length: ContactCapabilityPolicy.CapabilityIdHexLength } && value.All(Uri.IsHexDigit);
 
 static bool TryUnixTime(long unixSeconds, out DateTimeOffset value)
 {
