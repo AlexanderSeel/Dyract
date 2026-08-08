@@ -48,8 +48,8 @@ public sealed class GlobalRequestRateLimitMiddleware
 
     internal static DirectoryRateLimitCategory? GetCategory(PathString path)
     {
-        if (path.Equals("/api/v1/identity/challenge") ||
-            path.Equals("/api/v1/identity/register"))
+        if (path == new PathString("/api/v1/identity/challenge") ||
+            path == new PathString("/api/v1/identity/register"))
         {
             return DirectoryRateLimitCategory.Registration;
         }
