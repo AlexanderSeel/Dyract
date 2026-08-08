@@ -86,7 +86,7 @@ public partial class QrScannerPage : ContentPage
         if (!IsDyractOnboardingValue(value))
         {
             Dispatcher.Dispatch(() =>
-                StatusLabel.Text = "That QR code is not a Dyract contact or pairing value.");
+                StatusLabel.Text = "That QR code is not a valid Dyract contact or pairing value.");
             return;
         }
 
@@ -116,6 +116,6 @@ public partial class QrScannerPage : ContentPage
     }
 
     private static bool IsDyractOnboardingValue(string value)
-        => value.StartsWith(ContactInvitationCodec.Prefix, StringComparison.OrdinalIgnoreCase) ||
-           value.StartsWith(ContactPairingCodec.Prefix, StringComparison.OrdinalIgnoreCase);
+        => ContactInvitationCodec.TryDecode(value, out _, out _) ||
+           ContactPairingCodec.TryDecode(value, out _, out _);
 }
