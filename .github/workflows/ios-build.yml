@@ -16,6 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/ios-build.yml'
 
+# Validation marker: warning-clean iOS simulator build on Xcode 26.6.
 concurrency:
   group: ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
