@@ -20,6 +20,7 @@ public partial class ConversationPage : ContentPage
     private bool _initialized;
     private bool _sending;
     private bool _resolving;
+    private bool _creatingPairing;
 
     public ConversationPage(
         ILocalStore localStore,
@@ -59,6 +60,7 @@ public partial class ConversationPage : ContentPage
             ConversationStatusLabel.Text = $"Conversation unavailable: {exception.Message}";
             SendButton.IsEnabled = false;
             CopyPairingResponseButton.IsEnabled = false;
+            ShowPairingQrButton.IsEnabled = false;
             ResolveContactButton.IsEnabled = false;
         }
     }
@@ -72,8 +74,9 @@ public partial class ConversationPage : ContentPage
         _initialized = true;
         SendButton.IsEnabled = true;
         CopyPairingResponseButton.IsEnabled = true;
+        ShowPairingQrButton.IsEnabled = true;
         UpdateReachabilityButton();
-        ConversationStatusLabel.Text = "Local conversation ready. P2P message transport is not connected yet.";
+        ConversationStatusLabel.Text = "Local conversation ready. Production P2P message transport is not connected yet.";
     }
 
     private async Task LoadMessagesAsync()
@@ -94,25 +97,18 @@ public partial class ConversationPage : ContentPage
 
     private async void OnCopyPairingResponseClicked(object? sender, EventArgs e)
     {
-        if (!_initialized)
+        if (!_initialized || _creatingPairing)
         {
             return;
         }
 
-        CopyPairingResponseButton.IsEnabled = false;
+        SetPairingBusy(true);
         try
         {
-            using var identity = await _identityVault.GetOrCreateAsync();
-            var capability = ContactCapabilityFactory.Create(
-                identity,
-                _contact.PeerId,
-                PairingLifetime);
-            var response = ContactPairingCodec.Encode(capability);
-
-            await Clipboard.Default.SetTextAsync(response);
-            var expiry = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds).ToLocalTime();
+            var pairing = await CreatePairingResponseAsync();
+            await Clipboard.Default.SetTextAsync(pairing.Response);
             ConversationStatusLabel.Text =
-                $"Pairing response copied. {_contact.DisplayName} may import it to resolve you until {expiry:g}.";
+                $"Pairing response copied. {_contact.DisplayName} may import it to resolve you until {pairing.ExpiresAt.ToLocalTime():g}.";
         }
         catch (Exception exception)
         {
@@ -120,8 +116,56 @@ public partial class ConversationPage : ContentPage
         }
         finally
         {
-            CopyPairingResponseButton.IsEnabled = _initialized;
+            SetPairingBusy(false);
         }
+    }
+
+    private async void OnShowPairingQrClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _creatingPairing)
+        {
+            return;
+        }
+
+        SetPairingBusy(true);
+        try
+        {
+            var pairing = await CreatePairingResponseAsync();
+            await Navigation.PushAsync(new QrDisplayPage(
+                $"Pair {_contact.DisplayName}",
+                pairing.Response,
+                $"This QR grants only {_contact.DisplayName}'s pinned Peer ID permission to resolve your temporary reachability metadata until {pairing.ExpiresAt.ToLocalTime():g}.",
+                "Copy pairing response"));
+            ConversationStatusLabel.Text =
+                $"Pairing QR created for {_contact.DisplayName}; expires {pairing.ExpiresAt.ToLocalTime():g}.";
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Pairing QR could not be created: {exception.Message}";
+        }
+        finally
+        {
+            SetPairingBusy(false);
+        }
+    }
+
+    private async Task<(string Response, DateTimeOffset ExpiresAt)> CreatePairingResponseAsync()
+    {
+        using var identity = await _identityVault.GetOrCreateAsync();
+        var capability = ContactCapabilityFactory.Create(
+            identity,
+            _contact.PeerId,
+            PairingLifetime);
+        return (
+            ContactPairingCodec.Encode(capability),
+            DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds));
+    }
+
+    private void SetPairingBusy(bool busy)
+    {
+        _creatingPairing = busy;
+        CopyPairingResponseButton.IsEnabled = _initialized && !busy;
+        ShowPairingQrButton.IsEnabled = _initialized && !busy;
     }
 
     private async void OnResolveContactClicked(object? sender, EventArgs e)
@@ -191,7 +235,7 @@ public partial class ConversationPage : ContentPage
 
             ComposerEntry.Text = string.Empty;
             await LoadMessagesAsync();
-            ConversationStatusLabel.Text = "Message committed locally and queued for delivery. P2P transport comes next.";
+            ConversationStatusLabel.Text = "Message committed locally and queued for delivery. Production P2P transport is not connected yet.";
         }
         catch (Exception exception)
         {
