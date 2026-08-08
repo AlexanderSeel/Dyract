@@ -49,8 +49,8 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
-      - name: Install MAUI iOS workload
-        run: dotnet workload install maui-ios
+      - name: Install MAUI mobile workloads
+        run: dotnet workload install maui-ios maui-android
 
       - name: Build iOS simulator app
         run: >
