@@ -26,9 +26,14 @@
                         IsEnabled="False"
                         Text="Check reachability" />
                 </HorizontalStackLayout>
+                <Button
+                    x:Name="ShowPairingQrButton"
+                    Clicked="OnShowPairingQrClicked"
+                    IsEnabled="False"
+                    Text="Show pairing QR" />
                 <Label
                     FontSize="10"
-                    Text="Pairing responses grant temporary reachability permission. Check reachability uses only the configured directory and does not send a chat message." />
+                    Text="Pairing responses grant this exact contact temporary reachability permission. Check reachability uses only the configured directory and does not send a chat message." />
             </VerticalStackLayout>
         </Border>
 
