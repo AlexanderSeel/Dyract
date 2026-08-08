@@ -10,9 +10,11 @@ namespace Dyract.App;
 public partial class ConversationPage : ContentPage
 {
     private static readonly TimeSpan PairingLifetime = TimeSpan.FromDays(30);
+    private static readonly TimeSpan PairingRenewalWindow = TimeSpan.FromDays(1);
 
     private readonly ILocalStore _localStore;
     private readonly IIdentityVault _identityVault;
+    private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
     private readonly LocalContact _contact;
     private LocalConversation? _conversation;
@@ -25,12 +27,14 @@ public partial class ConversationPage : ContentPage
     public ConversationPage(
         ILocalStore localStore,
         IIdentityVault identityVault,
+        IIssuedCapabilityStore issuedCapabilityStore,
         IDirectoryService directoryService,
         LocalContact contact)
     {
         InitializeComponent();
         _localStore = localStore ?? throw new ArgumentNullException(nameof(localStore));
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
+        _issuedCapabilityStore = issuedCapabilityStore ?? throw new ArgumentNullException(nameof(issuedCapabilityStore));
         _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
         _contact = contact ?? throw new ArgumentNullException(nameof(contact));
 
@@ -105,7 +109,7 @@ public partial class ConversationPage : ContentPage
         SetPairingBusy(true);
         try
         {
-            var pairing = await CreatePairingResponseAsync();
+            var pairing = await GetOrCreatePairingResponseAsync();
             await Clipboard.Default.SetTextAsync(pairing.Response);
             ConversationStatusLabel.Text =
                 $"Pairing response copied. {_contact.DisplayName} may import it to resolve you until {pairing.ExpiresAt.ToLocalTime():g}.";
@@ -130,14 +134,14 @@ public partial class ConversationPage : ContentPage
         SetPairingBusy(true);
         try
         {
-            var pairing = await CreatePairingResponseAsync();
+            var pairing = await GetOrCreatePairingResponseAsync();
             await Navigation.PushAsync(new QrDisplayPage(
                 $"Pair {_contact.DisplayName}",
                 pairing.Response,
                 $"This QR grants only {_contact.DisplayName}'s pinned Peer ID permission to resolve your temporary reachability metadata until {pairing.ExpiresAt.ToLocalTime():g}.",
                 "Copy pairing response"));
             ConversationStatusLabel.Text =
-                $"Pairing QR created for {_contact.DisplayName}; expires {pairing.ExpiresAt.ToLocalTime():g}.";
+                $"Pairing QR ready for {_contact.DisplayName}; expires {pairing.ExpiresAt.ToLocalTime():g}.";
         }
         catch (Exception exception)
         {
@@ -149,15 +153,36 @@ public partial class ConversationPage : ContentPage
         }
     }
 
-    private async Task<(string Response, DateTimeOffset ExpiresAt)> CreatePairingResponseAsync()
+    private async Task<(string Response, DateTimeOffset ExpiresAt)> GetOrCreatePairingResponseAsync()
     {
         using var identity = await _identityVault.GetOrCreateAsync();
+        var now = DateTimeOffset.UtcNow;
+        var existingResponse = await _issuedCapabilityStore.GetIssuedCapabilityAsync(_contact.PeerId);
+
+        if (!string.IsNullOrWhiteSpace(existingResponse) &&
+            ContactPairingCodec.TryDecode(existingResponse, out var existingCapability, out _) &&
+            existingCapability is not null &&
+            ContactCapabilityVerifier.TryVerify(
+                existingCapability,
+                identity.ExportPublicKey(),
+                _contact.PeerId,
+                out _) &&
+            DateTimeOffset.FromUnixTimeSeconds(existingCapability.ExpiresUnixSeconds) > now.Add(PairingRenewalWindow))
+        {
+            return (
+                existingResponse,
+                DateTimeOffset.FromUnixTimeSeconds(existingCapability.ExpiresUnixSeconds));
+        }
+
         var capability = ContactCapabilityFactory.Create(
             identity,
             _contact.PeerId,
             PairingLifetime);
+        var response = ContactPairingCodec.Encode(capability);
+        await _issuedCapabilityStore.SaveIssuedCapabilityAsync(_contact.PeerId, response);
+
         return (
-            ContactPairingCodec.Encode(capability),
+            response,
             DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds));
     }
 
