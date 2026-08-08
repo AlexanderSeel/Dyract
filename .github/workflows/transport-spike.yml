@@ -17,6 +17,7 @@ on:
       - 'Dyract.TransportSpike.slnx'
       - '.github/workflows/transport-spike.yml'
 
+# Validation marker: SQLitePCLRaw 3.0.5 through FsWebRTC Android harness graph.
 concurrency:
   group: transport-spike-${{ github.ref }}
   cancel-in-progress: true
