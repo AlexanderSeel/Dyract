@@ -10,16 +10,37 @@ public sealed record PresenceLease(
     DateTimeOffset UpdatedAt,
     DateTimeOffset ExpiresAt);
 
-public sealed class PresenceStore
+public interface IPresenceStore
 {
-    private readonly ConcurrentDictionary<string, PresenceLease> _leases = new(StringComparer.Ordinal);
-
-    public PresenceLease Publish(
+    ValueTask<PresenceLease> PublishAsync(
         PeerId peerId,
         IReadOnlyList<ConnectionCandidate> candidates,
         DateTimeOffset now,
-        DateTimeOffset expiresAt)
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PresenceLease?> GetAsync(
+        PeerId peerId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> RemoveAsync(
+        PeerId peerId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class PresenceStore : IPresenceStore
+{
+    private readonly ConcurrentDictionary<string, PresenceLease> _leases = new(StringComparer.Ordinal);
+
+    public ValueTask<PresenceLease> PublishAsync(
+        PeerId peerId,
+        IReadOnlyList<ConnectionCandidate> candidates,
+        DateTimeOffset now,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(candidates);
 
         var lease = new PresenceLease(
@@ -30,25 +51,33 @@ public sealed class PresenceStore
 
         _leases[peerId.Value] = lease;
         RemoveExpired(now);
-        return lease;
+        return ValueTask.FromResult(lease);
     }
 
-    public bool TryGet(PeerId peerId, DateTimeOffset now, out PresenceLease lease)
+    public ValueTask<PresenceLease?> GetAsync(
+        PeerId peerId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         RemoveExpired(now);
 
         if (_leases.TryGetValue(peerId.Value, out var found) && found.ExpiresAt > now)
         {
-            lease = found with { Candidates = found.Candidates.ToArray() };
-            return true;
+            return ValueTask.FromResult<PresenceLease?>(
+                found with { Candidates = found.Candidates.ToArray() });
         }
 
-        lease = null!;
-        return false;
+        return ValueTask.FromResult<PresenceLease?>(null);
     }
 
-    public bool Remove(PeerId peerId)
-        => _leases.TryRemove(peerId.Value, out _);
+    public ValueTask<bool> RemoveAsync(
+        PeerId peerId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(_leases.TryRemove(peerId.Value, out _));
+    }
 
     private void RemoveExpired(DateTimeOffset now)
     {
