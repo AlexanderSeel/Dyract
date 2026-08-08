@@ -147,6 +147,55 @@ public sealed class DirectoryClient
             cancellationToken);
     }
 
+    public async Task RevokeContactCapabilityAsync(
+        PeerIdentity issuer,
+        ContactCapability capability,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(issuer);
+        ArgumentNullException.ThrowIfNull(capability);
+
+        if (!string.Equals(capability.IssuerPeerId, issuer.PeerId.Value, StringComparison.Ordinal))
+        {
+            throw new SecurityException("Only the identity that issued a contact capability may revoke it.");
+        }
+
+        if (!ContactCapabilityPolicy.IsLifetimeAllowed(
+                capability.IssuedUnixSeconds,
+                capability.ExpiresUnixSeconds))
+        {
+            throw new SecurityException("Contact capability lifetime is invalid.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = DateTimeOffset.FromUnixTimeSeconds(capability.ExpiresUnixSeconds);
+        if (expiresAt <= now)
+        {
+            return;
+        }
+
+        var timestamp = now.ToUnixTimeSeconds();
+        var nonce = CreateNonce();
+        var proof = ProofPayload.ForContactCapabilityRevocation(
+            issuer.PeerId.Value,
+            capability.CapabilityId,
+            capability.ExpiresUnixSeconds,
+            timestamp,
+            nonce);
+        var signature = Convert.ToBase64String(issuer.Sign(proof));
+
+        await PostNoContentAsync(
+            "/api/v1/capability/revoke",
+            new RevokeContactCapabilityRequest(
+                issuer.PeerId.Value,
+                capability.CapabilityId,
+                capability.ExpiresUnixSeconds,
+                timestamp,
+                nonce,
+                signature),
+            cancellationToken);
+    }
+
     public async Task<ResolvePeerResponse> ResolveAsync(
         PeerIdentity requester,
         string targetPeerId,
