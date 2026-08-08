@@ -1,0 +1,1 @@
+Transient CI marker for deterministic protocol fuzz/property validation.
