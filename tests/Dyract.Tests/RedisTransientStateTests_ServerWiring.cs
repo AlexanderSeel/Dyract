@@ -1,6 +1,6 @@
 using Dyract.Server.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -30,13 +30,10 @@ public sealed class RedisTransientStateTests_ServerWiring
         using var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
-                builder.ConfigureAppConfiguration((_, configuration) =>
-                {
-                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["ConnectionStrings:Redis"] = connectionString
-                    });
-                });
+                // Minimal hosting reads configuration-dependent registrations while Program is
+                // executing. Use a host setting so the value is present before that service
+                // selection rather than a late ConfigureAppConfiguration callback.
+                builder.UseSetting("ConnectionStrings:Redis", connectionString);
             });
 
         var limiter = factory.Services.GetRequiredService<IGlobalRequestLimiter>();
