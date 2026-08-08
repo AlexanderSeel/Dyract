@@ -58,6 +58,7 @@ docs/
   capability-revocation.md
   redis-transient-state.md
   threat-model.md
+  sbom.md
 ```
 
 ## 4. Phase 0 — identity and directory bootstrap
@@ -407,11 +408,11 @@ Before public production use:
 - [ ] system-level replay/downgrade/session-collision tests.
 - [ ] endpoint-enumeration/abuse tests.
 - [ ] stolen-device/recovery analysis.
-- [ ] SBOM/dependency automation.
+- [x] SBOM/dependency automation.
 - [ ] independent cryptographic review.
 - [ ] mobile secure-storage review.
 
-See `docs/threat-model.md`.
+See `docs/threat-model.md` and `docs/sbom.md`.
 
 ## 14. Deferred until one-to-one messaging is proven
 
@@ -436,4 +437,4 @@ Transport-dependent product work remains gated by physical evidence.
 6. If Android transport is viable, implement the production Android transport/frame sender and lifecycle-safe outbox scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Add production Redis security/deployment policy and distributed abuse controls before horizontal deployment.
-9. Add SBOM/dependency automation and continue fuzzing, recovery analysis, independent threat-model/security review and cryptographic review in parallel.
+9. Continue protocol fuzz/property testing, recovery analysis, independent threat-model/security review, cryptographic review and release SBOM/provenance policy in parallel.
