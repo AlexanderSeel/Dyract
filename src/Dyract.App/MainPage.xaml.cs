@@ -14,6 +14,7 @@ public partial class MainPage : ContentPage
     private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
     private string? _peerId;
+    private string? _fingerprint;
     private string? _contactInvitation;
     private bool _initialized;
     private bool _busy;
@@ -53,6 +54,7 @@ public partial class MainPage : ContentPage
             CopyPeerIdButton.IsEnabled = false;
             CopyInviteButton.IsEnabled = false;
             ShowInviteQrButton.IsEnabled = false;
+            SecuritySettingsButton.IsEnabled = false;
             ScanQrButton.IsEnabled = false;
             AddContactButton.IsEnabled = false;
             SaveDirectoryButton.IsEnabled = false;
@@ -71,10 +73,11 @@ public partial class MainPage : ContentPage
         _peerId = identity.PeerId.Value;
         _contactInvitation = ContactInvitationFactory.Create(identity);
         var publicKey = identity.ExportPublicKey();
+        _fingerprint = ContactInvitationCodec.GetFingerprint(publicKey);
         var configuredDirectory = _directoryService.ConfiguredBaseUri;
 
         PeerIdLabel.Text = _peerId;
-        FingerprintLabel.Text = $"Fingerprint: {ContactInvitationCodec.GetFingerprint(publicKey)}";
+        FingerprintLabel.Text = $"Fingerprint: {_fingerprint}";
         DirectoryUrlEntry.Text = configuredDirectory?.AbsoluteUri ?? string.Empty;
         DirectoryStatusLabel.Text = configuredDirectory is null
             ? "No directory configured."
@@ -82,6 +85,7 @@ public partial class MainPage : ContentPage
         CopyPeerIdButton.IsEnabled = true;
         CopyInviteButton.IsEnabled = true;
         ShowInviteQrButton.IsEnabled = true;
+        SecuritySettingsButton.IsEnabled = true;
         ScanQrButton.IsEnabled = true;
         AddContactButton.IsEnabled = true;
         SaveDirectoryButton.IsEnabled = true;
@@ -136,6 +140,16 @@ public partial class MainPage : ContentPage
             _contactInvitation,
             "This QR contains your public Dyract contact invitation. It does not contain your private identity key or local contact/message data.",
             "Copy contact invite"));
+    }
+
+    private async void OnSecuritySettingsClicked(object? sender, EventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_peerId) || string.IsNullOrWhiteSpace(_fingerprint))
+        {
+            return;
+        }
+
+        await Navigation.PushAsync(new SecurityPage(_peerId, _fingerprint));
     }
 
     private async void OnScanQrClicked(object? sender, EventArgs e)
