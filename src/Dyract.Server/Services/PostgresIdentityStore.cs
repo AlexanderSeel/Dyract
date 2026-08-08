@@ -103,38 +103,3 @@ public sealed class PostgresIdentityStore : IIdentityStore
             new DateTimeOffset(registeredAtUtc));
     }
 }
-
-public sealed class PostgresSchemaInitializer : IHostedService
-{
-    private readonly NpgsqlDataSource _dataSource;
-    private readonly ILogger<PostgresSchemaInitializer> _logger;
-
-    public PostgresSchemaInitializer(
-        NpgsqlDataSource dataSource,
-        ILogger<PostgresSchemaInitializer> logger)
-    {
-        _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(
-            """
-            CREATE TABLE IF NOT EXISTS peer_identity
-            (
-                peer_id       text PRIMARY KEY,
-                public_key    bytea NOT NULL,
-                registered_at timestamptz NOT NULL
-            );
-            """,
-            connection);
-
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        _logger.LogInformation("PostgreSQL identity schema is ready.");
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-        => Task.CompletedTask;
-}
