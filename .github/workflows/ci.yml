@@ -9,6 +9,7 @@ on:
     branches:
       - main
 
+# Validation marker: capability revocation, lifetime policy, and local schema v2.
 concurrency:
   group: core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
