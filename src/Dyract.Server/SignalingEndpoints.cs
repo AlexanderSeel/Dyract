@@ -29,6 +29,7 @@ public static class SignalingEndpoints
         IIdentityStore identities,
         ReplayNonceStore replayNonces,
         SignalStore signals,
+        CapabilityRevocationStore revocations,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -128,6 +129,7 @@ public static class SignalingEndpoints
             senderId,
             targetId,
             target.PublicKey,
+            revocations,
             now);
         if (capabilityError is not null)
         {
@@ -284,6 +286,7 @@ public static class SignalingEndpoints
         PeerId requesterId,
         PeerId targetId,
         byte[] targetPublicKey,
+        CapabilityRevocationStore revocations,
         DateTimeOffset now)
     {
         if (capability.Version != 1)
@@ -302,13 +305,20 @@ public static class SignalingEndpoints
             return Unauthorized("capability_invalid", "Contact capability ID is invalid.");
         }
 
-        if (!TryUnixTime(capability.IssuedUnixSeconds, out var issuedAt) ||
+        if (!ContactCapabilityPolicy.IsLifetimeAllowed(
+                capability.IssuedUnixSeconds,
+                capability.ExpiresUnixSeconds) ||
+            !TryUnixTime(capability.IssuedUnixSeconds, out var issuedAt) ||
             !TryUnixTime(capability.ExpiresUnixSeconds, out var expiresAt) ||
-            expiresAt <= issuedAt ||
             issuedAt > now.AddMinutes(2) ||
             expiresAt <= now)
         {
             return Unauthorized("capability_expired", "Contact capability is invalid or expired.");
+        }
+
+        if (revocations.IsRevoked(targetId, capability.CapabilityId, now))
+        {
+            return Unauthorized("capability_revoked", "Contact capability has been revoked by its issuer.");
         }
 
         if (!TryDecodeBase64(capability.Signature, 512, out var capabilitySignature))
@@ -391,7 +401,7 @@ public static class SignalingEndpoints
     }
 
     private static bool IsHexId(string? value)
-        => value is { Length: 32 } && value.All(Uri.IsHexDigit);
+        => value is { Length: ContactCapabilityPolicy.CapabilityIdHexLength } && value.All(Uri.IsHexDigit);
 
     private static IResult BadRequest(string code, string message)
         => Results.BadRequest(new ApiError(code, message));
