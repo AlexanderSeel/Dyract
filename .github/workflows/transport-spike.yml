@@ -17,6 +17,7 @@ on:
       - 'Dyract.TransportSpike.slnx'
       - '.github/workflows/transport-spike.yml'
 
+# Validation marker: storage migration changes still compile through the Android transport harness graph.
 concurrency:
   group: transport-spike-${{ github.ref }}
   cancel-in-progress: true
