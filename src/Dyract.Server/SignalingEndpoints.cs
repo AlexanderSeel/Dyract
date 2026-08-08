@@ -28,7 +28,7 @@ public static class SignalingEndpoints
         SendPeerSignalRequest request,
         IIdentityStore identities,
         IReplayNonceStore replayNonces,
-        SignalStore signals,
+        ISignalStore signals,
         ICapabilityRevocationStore revocations,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -142,15 +142,16 @@ public static class SignalingEndpoints
             return Unauthorized("replay_detected", "This signed signal nonce has already been used.");
         }
 
-        if (!signals.TryEnqueue(
-                senderId,
-                targetId,
-                request.SessionId.ToLowerInvariant(),
-                request.SignalType,
-                request.Payload,
-                now,
-                signalExpires,
-                out var stored))
+        var stored = await signals.TryEnqueueAsync(
+            senderId,
+            targetId,
+            request.SessionId.ToLowerInvariant(),
+            request.SignalType,
+            request.Payload,
+            now,
+            signalExpires,
+            cancellationToken);
+        if (stored is null)
         {
             return Results.Json(
                 new ApiError("signal_inbox_full", "Target has too many pending signaling items."),
@@ -166,7 +167,7 @@ public static class SignalingEndpoints
         FetchPeerSignalsRequest request,
         IIdentityStore identities,
         IReplayNonceStore replayNonces,
-        SignalStore signals,
+        ISignalStore signals,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -203,7 +204,12 @@ public static class SignalingEndpoints
             return Unauthorized("replay_detected", "This signed signal fetch nonce has already been used.");
         }
 
-        var pending = signals.Fetch(peerId, now, SignalStore.MaximumFetchCount)
+        var stored = await signals.FetchAsync(
+            peerId,
+            now,
+            SignalStore.MaximumFetchCount,
+            cancellationToken);
+        var pending = stored
             .Select(signal => new PeerSignalEnvelope(
                 signal.SignalId,
                 signal.SenderPeerId.Value,
@@ -221,7 +227,7 @@ public static class SignalingEndpoints
         AckPeerSignalsRequest request,
         IIdentityStore identities,
         IReplayNonceStore replayNonces,
-        SignalStore signals,
+        ISignalStore signals,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -278,7 +284,7 @@ public static class SignalingEndpoints
             return Unauthorized("replay_detected", "This signed signal acknowledgement nonce has already been used.");
         }
 
-        signals.Acknowledge(peerId, request.SignalIds, now);
+        await signals.AcknowledgeAsync(peerId, request.SignalIds, now, cancellationToken);
         return Results.NoContent();
     }
 
