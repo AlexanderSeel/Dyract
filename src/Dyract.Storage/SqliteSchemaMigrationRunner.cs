@@ -9,11 +9,14 @@ namespace Dyract.Storage;
 /// </summary>
 public sealed class SqliteSchemaMigrationRunner
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     private static readonly MigrationDefinition[] Migrations =
     [
-        new(1, "baseline-v1", Sql: null)
+        new(1, "baseline-v1", Sql: null),
+        new(2, "track-issued-contact-capability", """
+            ALTER TABLE contacts ADD COLUMN granted_capability BLOB NULL;
+            """)
     ];
 
     private readonly string _connectionString;
