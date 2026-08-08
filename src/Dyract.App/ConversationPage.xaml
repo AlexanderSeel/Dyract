@@ -14,26 +14,41 @@
                 <Label x:Name="ContactPeerIdLabel" FontFamily="monospace" FontSize="10" LineBreakMode="CharacterWrap" />
                 <Label x:Name="ContactFingerprintLabel" FontFamily="monospace" FontSize="10" />
                 <Label x:Name="PairingStateLabel" FontSize="11" />
-                <HorizontalStackLayout Spacing="8">
+                <Label x:Name="IssuedGrantStateLabel" FontSize="11" Text="They do not currently have a tracked reachability grant from you." />
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                     <Button
                         x:Name="CopyPairingResponseButton"
+                        Grid.Column="0"
                         Clicked="OnCopyPairingResponseClicked"
                         IsEnabled="False"
                         Text="Copy pairing response" />
                     <Button
+                        x:Name="ShowPairingQrButton"
+                        Grid.Column="1"
+                        Clicked="OnShowPairingQrClicked"
+                        IsEnabled="False"
+                        Text="Show pairing QR" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <Button
                         x:Name="ResolveContactButton"
+                        Grid.Column="0"
                         Clicked="OnResolveContactClicked"
                         IsEnabled="False"
                         Text="Check reachability" />
-                </HorizontalStackLayout>
-                <Button
-                    x:Name="ShowPairingQrButton"
-                    Clicked="OnShowPairingQrClicked"
-                    IsEnabled="False"
-                    Text="Show pairing QR" />
+                    <Button
+                        x:Name="RevokeMyGrantButton"
+                        Grid.Column="1"
+                        Clicked="OnRevokeMyGrantClicked"
+                        IsEnabled="False"
+                        Text="Revoke my grant" />
+                </Grid>
+
                 <Label
                     FontSize="10"
-                    Text="Pairing responses grant this exact contact temporary reachability permission. Check reachability uses only the configured directory and does not send a chat message." />
+                    Text="Their pairing response lets you resolve them. Your pairing response lets them resolve you. Revocation affects only the grant you issued; it does not remove the contact or their grant to you." />
             </VerticalStackLayout>
         </Border>
 
