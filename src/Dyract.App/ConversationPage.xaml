@@ -2,7 +2,8 @@
 <ContentPage
     x:Class="Dyract.App.ConversationPage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:storage="clr-namespace:Dyract.Storage;assembly=Dyract.Storage">
 
     <Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="12">
         <Border Grid.Row="0" Padding="12" StrokeThickness="1">
@@ -57,7 +58,7 @@
             Grid.Row="1"
             EmptyView="No messages yet. Messages you send are committed locally before any network delivery is attempted.">
             <CollectionView.ItemTemplate>
-                <DataTemplate>
+                <DataTemplate x:DataType="storage:LocalMessage">
                     <Border Margin="0,4" Padding="12" StrokeThickness="1">
                         <Border.StrokeShape>
                             <RoundRectangle CornerRadius="12" />
