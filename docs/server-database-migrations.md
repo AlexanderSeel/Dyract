@@ -1,6 +1,6 @@
 # PostgreSQL schema migrations
 
-Dyract's directory stores only server-owned metadata. PostgreSQL currently persists the durable identity registry; presence, replay nonces, signaling and capability revocations remain short-lived prototype state.
+Dyract's directory stores only server-owned metadata. PostgreSQL persists the durable identity registry and, as of schema v2, metadata-minimized capability revocations. Presence leases, replay nonces and WebRTC signaling remain short-lived prototype state.
 
 The server no longer relies on ad-hoc table bootstrap inside `PostgresIdentityStore`. Schema ownership is centralized in:
 
@@ -12,7 +12,7 @@ PostgresSchemaInitializer
 ## Current schema version
 
 ```text
-PostgresSchemaMigrator.CurrentVersion = 1
+PostgresSchemaMigrator.CurrentVersion = 2
 ```
 
 Migration ledger:
@@ -26,13 +26,14 @@ CREATE TABLE dyract_schema_migrations
 );
 ```
 
-Current migration:
+Current migrations:
 
 ```text
 1  create-peer-identity
+2  persist-capability-revocations
 ```
 
-which owns:
+Migration 1 owns:
 
 ```sql
 CREATE TABLE peer_identity
@@ -43,9 +44,26 @@ CREATE TABLE peer_identity
 );
 ```
 
+Migration 2 owns:
+
+```sql
+CREATE TABLE capability_revocation
+(
+    issuer_peer_id text NOT NULL REFERENCES peer_identity(peer_id) ON DELETE CASCADE,
+    capability_id  text NOT NULL,
+    expires_at     timestamptz NOT NULL,
+    PRIMARY KEY (issuer_peer_id, capability_id)
+);
+
+CREATE INDEX ix_capability_revocation_expires_at
+    ON capability_revocation(expires_at);
+```
+
+The revocation table deliberately contains no grantee/contact column. It records only the issuer, opaque capability ID and natural expiry required to deny a previously issued grant.
+
 ## Startup behavior
 
-When a PostgreSQL `ConnectionStrings:Dyract` value is configured, the server registers the PostgreSQL identity store and runs the schema migrator before normal operation.
+When a PostgreSQL `ConnectionStrings:Dyract` value is configured, the server registers both `PostgresIdentityStore` and `PostgresCapabilityRevocationStore` and runs the schema migrator before normal operation.
 
 Conceptually:
 
@@ -66,14 +84,18 @@ validate critical table shape
         ↓
 record migration rows
         ↓
+revalidate final physical schema
+        ↓
 commit transaction
 ```
 
 The transaction-scoped PostgreSQL advisory lock serializes concurrent application instances during migration. The lock is released automatically with the transaction.
 
+Critical schema validation runs on every startup, not only when a migration is first applied. A manually modified or corrupted table is therefore rejected even when the migration ledger itself appears complete.
+
 ## Existing database adoption
 
-Migration 1 uses `CREATE TABLE IF NOT EXISTS`, but that does **not** mean an arbitrary pre-existing table is trusted.
+Migrations use `CREATE TABLE IF NOT EXISTS`, but that does **not** mean arbitrary pre-existing tables are trusted.
 
 Before recording migration 1, Dyract validates that `peer_identity` has the expected critical shape:
 
@@ -82,7 +104,32 @@ Before recording migration 1, Dyract validates that `peer_identity` has the expe
 - `registered_at timestamp with time zone NOT NULL`;
 - primary key exactly on `peer_id`.
 
-If an existing table does not match, startup fails and the migration transaction rolls back. Dyract does not silently alter an unknown/malformed production identity table.
+Before recording migration 2, Dyract validates that `capability_revocation` has:
+
+- `issuer_peer_id text NOT NULL`;
+- `capability_id text NOT NULL`;
+- `expires_at timestamp with time zone NOT NULL`;
+- primary key exactly on `(issuer_peer_id, capability_id)`;
+- no column whose name contains `grantee`.
+
+If a critical table does not match, startup fails and the migration transaction rolls back. Dyract does not silently alter an unknown or malformed production schema.
+
+## Capability revocation durability
+
+With PostgreSQL configured, revocation authorization uses `PostgresCapabilityRevocationStore` directly. A successful revocation is committed before the API returns success, and later `/peer/resolve` and `/signal/send` authorization checks query the same durable state.
+
+This means a server process restart does not resurrect a revoked capability. Multiple server instances sharing the same database also observe the same revocation records rather than relying on per-process cache hydration.
+
+The store:
+
+- deletes expired revocations opportunistically for the issuer;
+- serializes per-issuer capacity checks with a PostgreSQL advisory transaction lock;
+- preserves the 512-active-revocation prototype limit per issuer;
+- remains idempotent for the same capability ID;
+- can extend an existing revocation to the supplied natural expiry;
+- stores no grantee/contact relationship.
+
+Without a PostgreSQL connection string, the server intentionally falls back to `CapabilityRevocationStore`, the in-memory development/test implementation.
 
 ## Migration invariants
 
@@ -92,12 +139,12 @@ If an existing table does not match, startup fails and the migration transaction
 4. Multiple instances are serialized with the migration advisory lock.
 5. A migration history with gaps is rejected.
 6. A database with a migration version newer than the running build is rejected.
-7. Critical existing schema shapes are validated before adoption.
+7. Critical schema shapes are validated before adoption and again on later startups.
 8. Migration failure must fail application startup rather than falling back to an empty identity registry.
 9. Database credentials are never embedded in migration source or workflow logs.
 10. Future destructive migrations require an explicit backup/rollback plan and separate review.
 
-## Adding migration v2+
+## Adding migration v3+
 
 For a real server schema change:
 
@@ -107,9 +154,10 @@ For a real server schema change:
 4. test concurrent migrators;
 5. test failure/rollback behavior;
 6. validate any security-sensitive resulting table/index/constraint shape;
-7. run the PostgreSQL CI job before release.
+7. ensure completed migration histories are revalidated for drift where appropriate;
+8. run the PostgreSQL CI job before release.
 
-Do not rewrite migration 1 to change a deployed schema. Add migration 2 instead.
+Do not rewrite migrations 1 or 2 to change a deployed schema. Add migration 3 instead.
 
 ## PostgreSQL CI
 
@@ -121,28 +169,39 @@ The job sets a test-only connection string through:
 DYRACT_POSTGRES_TEST_CONNECTION
 ```
 
-and executes only the real PostgreSQL migration tests against the service container.
+and executes the real PostgreSQL migration tests against the service container.
 
 Current integration coverage proves:
 
-- fresh migration succeeds;
+- fresh v1 + v2 migration succeeds;
 - running the migrator repeatedly is idempotent;
 - `PostgresIdentityStore` works after migration;
+- revocation survives creation of a fresh `PostgresCapabilityRevocationStore` instance;
+- expired revocations no longer authorize as active;
+- the revocation table contains no grantee column;
 - four concurrent migrators serialize correctly;
 - malformed existing identity schema is rejected and rolled back;
+- malformed revocation schema is rejected without recording migration 2;
+- schema drift after a fully recorded migration history is rejected on later startup;
 - a future migration version is rejected.
 
-The ordinary unit/integration suite still runs without requiring PostgreSQL; the dedicated CI job ensures the PostgreSQL-specific tests are not accidentally skipped in repository validation.
+The ordinary unit/integration suite still runs without requiring PostgreSQL; the dedicated CI job ensures PostgreSQL-specific tests are not accidentally skipped in repository validation.
 
 ## Production boundary
 
-PostgreSQL currently persists identity registrations only. Dyract's remaining ephemeral server state is intentionally separate:
+PostgreSQL now persists:
+
+```text
+identity registrations
+capability revocations
+```
+
+The remaining ephemeral server state is still separate:
 
 ```text
 presence leases
 replay nonces
 WebRTC signaling
-capability revocations
 ```
 
-For a horizontally scaled production directory, those TTL datasets need shared state—typically Redis or another TTL-capable distributed store—while preserving Dyract's metadata-minimization rules. In particular, capability revocation state must remain durable across process restarts for the remaining lifetime of the revoked capability without adding the grantee/contact graph to server storage.
+For a horizontally scaled production directory, those short-lived datasets still need shared TTL-capable state, typically Redis or an equivalent service. Capability revocations no longer depend on that future work for correctness because PostgreSQL already provides durable, cross-instance state, although a TTL-oriented store could later be evaluated as an optimization while preserving the same no-grantee metadata boundary.
