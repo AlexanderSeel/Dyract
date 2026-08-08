@@ -113,3 +113,5 @@ jobs:
           dotnet test tests/Dyract.Tests/Dyract.Tests.csproj
           --configuration Release
           --filter FullyQualifiedName~RedisTransientStateTests
+
+# Validation marker: final shared-state regression including hashed presence keys.
