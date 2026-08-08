@@ -1,227 +1,201 @@
 # Protocol parser robustness and fuzzing
 
-Dyract treats all QR/import text and all peer/network frames as untrusted input, even when the surrounding transport is encrypted or authenticated.
+Dyract treats QR/import text, HTTP request bodies and peer/network frames as untrusted input, even when the surrounding transport is encrypted or authenticated.
 
-This document records the repository-side deterministic parser-fuzzing strategy. It is an engineering robustness suite, not a replacement for a coverage-guided native fuzzer, independent penetration test, or cryptographic review.
+This document records the repository-side **deterministic** fuzz/property strategy. It is an engineering regression suite, not a replacement for coverage-guided fuzzing, an independent penetration test, or cryptographic review.
 
-## Goals
+## Acceptance invariants
 
-The current fuzz/property tests target these invariants:
+Repository fuzz/property coverage targets these rules:
 
-1. arbitrary malformed input must not crash a decoder;
-2. oversized externally controlled input must be rejected before avoidable large decoding/deserialization allocations;
+1. arbitrary malformed input must fail closed without unexpected runtime exceptions;
+2. externally controlled sizes must be bounded before avoidable large decoding/deserialization allocations;
 3. protocol domains must not silently cross-accept one another;
-4. valid round-trips must remain valid while malformed mutations are rejected/fail closed;
-5. binary frame decoders must safely handle truncation, arbitrary magic/version/length fields and oversized buffers;
-6. failures must be reproducible from fixed seeds.
+4. accepted wire encodings must be canonical;
+5. authentication failure must not advance receive/session state;
+6. replay/downgrade/cross-session inputs must not become valid through parser/state-machine side effects;
+7. deterministic seeds/corpora must make failures reproducible in CI.
 
-## Current parser boundaries
+## QR/import boundaries
 
-### Contact invitation QR/import
-
-Codec:
+### Contact invitation
 
 ```text
 ContactInvitationCodec
+dyract://contact/v1/...
 ```
 
-Wire prefix:
-
-```text
-dyract://contact/v1/
-```
-
-Decoded JSON payload maximum:
+Decoded JSON payload ceiling:
 
 ```text
 8192 bytes
 ```
 
-The codec now derives the maximum possible Base64URL character count from that decoded ceiling and rejects a larger URI **before** Base64 decoding.
+The codec rejects an oversized encoded URI before Base64URL decoding. Tests cover valid round-trip, oversized input, deterministic malformed strings, mutation of valid values and pairing-domain rejection.
 
-This closes an allocation-amplification path where an attacker-controlled QR/text value could previously force an unnecessarily large Base64 decode before the 8 KiB decoded-payload check ran.
-
-Tests cover:
-
-- valid invitation round-trip;
-- oversized encoded URI rejection;
-- deterministic random malformed strings;
-- deterministic mutation of a valid encoded invitation;
-- cross-domain rejection by the pairing codec.
-
-### Pairing-response QR/import
-
-Codec:
+### Pairing response
 
 ```text
 ContactPairingCodec
+dyract://pair/v1/...
 ```
 
-Wire prefix:
+The same pre-decode bound applies. Structurally valid QR data still goes through the normal cryptographic capability verification path; scanning is never an authorization bypass.
+
+## Authenticated session handshake (`DYSH`)
+
+The public pre-authentication boundary exercised by tests is the real responder API:
 
 ```text
-dyract://pair/v1/
+AuthenticatedSessionResponder.Accept(...)
 ```
 
-Decoded JSON payload maximum:
+`ProtocolParserRobustnessTests` sends 10,000 deterministic random binary buffers into that boundary. Only expected format/authentication rejection is accepted; an unexpected exception or accidental authentication fails the test.
+
+`ProtocolFuzzPropertyTests` adds signed-frame mutation properties:
+
+- sampled single-byte/bit mutations across a valid client hello cannot authenticate;
+- protocol-version downgrade mutations are rejected;
+- a response generated for one SessionId cannot complete an initiator for another SessionId;
+- role/identity/session binding remains enforced by normal adversarial handshake tests.
+
+## Reliable-message frames (`DYRM`)
+
+Boundary:
 
 ```text
-8192 bytes
+PeerMessagingProtocol.TryDecode(...)
 ```
 
-The same pre-Base64 encoded-length bound is enforced.
+Repository properties now include:
 
-Tests cover:
+- deterministic malformed/boundary binary corpora;
+- hundreds of generated valid text/ACK frames with Unicode payloads;
+- exact encode -> decode -> encode canonical equality for valid frames;
+- one-bit mutation across every byte of a representative valid frame;
+- a mutated frame must either reject with a bounded protocol error or decode to the exact canonical byte representation it already contains;
+- normal reliable-messaging tests continue to cover sender/recipient scope, duplicate idempotency, ACK authorization and collision rejection.
 
-- oversized encoded URI rejection;
-- deterministic random malformed strings;
-- cross-domain rejection of contact-invitation payloads.
+## Authenticated encrypted application frames (`DYSE`)
 
-Valid signed capability creation/verification already has dedicated capability tests; the parser fuzz test intentionally does not duplicate cryptographic capability construction.
-
-### Authenticated-session hello frames
-
-Decoder boundary:
-
-```text
-AuthenticatedSessionHandshake.TryDecodeClientHello
-AuthenticatedSessionHandshake.TryDecodeServerHello
-```
-
-The robustness suite sends 10,000 deterministic random binary buffers with sizes from zero through large malformed inputs. The property is that the `TryDecode...` APIs return a result without throwing for arbitrary attacker-controlled bytes.
-
-This exercises pre-authentication binary input because a remote endpoint can send a malformed hello before application identity authentication succeeds.
-
-### Reliable-message (`DYRM`) frames
-
-Decoder boundary:
-
-```text
-PeerMessagingProtocol public Try*Decode* methods
-```
-
-The test source is generated from the actual public decoder signatures on `main` so the fuzz harness does not silently drift when decoder names change.
+`ProtocolFuzzPropertyTests` exercises the established `AuthenticatedSessionCipher` state API rather than a mock decoder.
 
 Current properties:
 
-- 10,000 deterministic random binary frames;
-- random frame sizes up to 64 KiB;
-- explicit edge sizes including empty/truncated buffers and large 256 KiB buffers;
-- every one-input public `Try*Decode*` boundary must return without throwing.
+- 64 sequential encrypted frames are mutated at deterministic positions;
+- each authentication/format failure must leave the receive sequence unchanged so the original frame can still be accepted immediately afterward;
+- truncated frames reject without consuming receive state;
+- extended/trailing-byte frames reject without consuming receive state;
+- a frame from Session A is rejected by Session B;
+- the same frame is accepted by the correct session once and then rejected as replay.
 
-The normal messaging tests remain responsible for valid text/ACK semantics, identity scoping, duplicate behavior and collision rejection.
+These properties extend the existing example tests for header mutation, wrong identity/session, replay, out-of-order data and tampered ciphertext/tag.
+
+## HTTP/API robustness
+
+`DirectoryApiRobustnessTests` exercises every current `/api/v1` POST boundary with deterministic malformed JSON/binary bodies.
+
+Covered endpoints include:
+
+```text
+identity/challenge
+identity/register
+peer/lookup
+presence
+presence/remove
+capability/revoke
+peer/resolve
+signal/send
+signal/fetch
+signal/ack
+```
+
+Properties:
+
+- malformed bodies must not produce an HTTP 5xx response;
+- JSON-like malformed bodies exercise deeper model binding as well as immediate parse rejection;
+- bodies above the 64 KiB outer ceiling are rejected with HTTP 413.
+
+`DirectoryAbuseIntegrationTests` adds semantic abuse cases rather than random syntax only:
+
+- an unregistered requester cannot lookup a known registered target;
+- missing reachability capability does not leak a published candidate address/port;
+- a capability issued for one grantee cannot be copied to another registered peer;
+- an oversized signaling payload is rejected and never reaches the target inbox;
+- request admission limits are exercised at the server boundary.
 
 ## Deterministic seeds
 
-Current seeds are intentionally fixed so a CI failure can be reproduced exactly:
+Normal CI uses fixed seeds rather than wall-clock randomness. Existing corpora include values such as:
 
 ```text
-0x44595241   QR malformed-input corpus     ("DYRA")
-0x50415253   valid-QR mutation corpus      ("PARS")
-0x53455353   session-hello binary corpus   ("SESS")
-0x4459524D   DYRM binary corpus            ("DYRM")
+0x44595241   QR malformed-input corpus      ("DYRA")
+0x50415253   valid-QR mutation corpus       ("PARS")
+0x53455353   session binary corpus          ("SESS")
+0x4459524D   DYRM parser corpus             ("DYRM")
+0x0000D1A7   generated DYRM property corpus
+0x00051A17   garbage DYRM property corpus
+0x41504946   HTTP API malformed corpus      ("APIF")
 ```
 
-Do not replace fixed seeds with wall-clock randomness in the normal CI suite. New randomly discovered failures should be minimized into a deterministic regression case or assigned a fixed additional seed.
+Do not replace these with nondeterministic seeds in the required CI suite. A randomly discovered issue should be minimized into a deterministic regression input/seed.
 
-## Why deterministic randomized tests instead of only example cases?
+## Size/allocation policy
 
-Example-based tests are still required for protocol semantics, but parsers tend to fail on combinations that reviewers do not think to hand-write:
-
-- truncated headers at every byte boundary;
-- invalid UTF-8/JSON/Base64 encodings;
-- impossible length fields;
-- arbitrary version/magic bytes;
-- very large but syntactically shaped inputs;
-- mutations near delimiter/prefix boundaries.
-
-A deterministic random corpus expands the input surface while retaining reproducibility and CI stability.
-
-## Allocation/size policy
-
-Before parsing an externally supplied length-bearing representation, Dyract should bound the representation as early as possible.
-
-Preferred order:
+Preferred validation order for untrusted data:
 
 ```text
 raw transport/request size bound
         ↓
 encoded representation size bound
         ↓
-decode/base64/json/binary parse
+decode / JSON / Base64 / binary parse
         ↓
-decoded payload semantic size bound
+decoded semantic size bound
         ↓
-cryptographic/identity validation
+identity / signature / authenticated-state validation
 ```
 
-For HTTP endpoints, Kestrel/request DTO limits provide an outer boundary. QR/import codecs require their own bounds because they can also be invoked directly by the mobile app outside the server HTTP path.
+This matters because a parser that eventually rejects a 100 MiB attacker input can still be an availability vulnerability if it allocates/decodes the entire representation first.
 
-## Current status
+## Current repository status
 
-Repository-side deterministic parser robustness now covers:
+The deterministic repository fuzz/property PLAN item is considered implemented because current CI exercises:
 
-- contact invitation import;
-- pairing-response import;
-- authenticated-session hello decoding;
-- reliable-message (`DYRM`) public decoders.
+- QR/import malformed input and pre-decode bounds;
+- pre-authentication handshake garbage/mutations;
+- handshake downgrade and cross-session binding;
+- `DYRM` generated canonical round-trips and mutation corpus;
+- `DYSE` authenticated mutation/replay/cross-session state properties;
+- malformed HTTP/API request boundaries;
+- semantic directory enumeration/capability-abuse regression cases.
 
-This is a meaningful completed **parser robustness slice**, but it is not yet sufficient to mark the broader security-plan item `protocol fuzz/property tests` complete.
+This status means **repository deterministic regression coverage is implemented**. It does not mean Dyract has undergone independent fuzzing or security review.
 
-## Remaining fuzz/property work
+## Still open before production
 
-### Authenticated encrypted session frames (`DYSE`)
+### Coverage-guided fuzzing
 
-Add property tests around the established session cipher/state API for:
+Evaluate a maintained coverage-guided .NET fuzzing tool/job for the core protocol assemblies. New crashes/findings need minimized reproducible corpus entries retained in the repository or CI artifact workflow.
 
-- random ciphertext frames;
-- truncated nonce/tag/header fields;
-- changed protocol version/session identifier;
-- sequence-number replay;
-- sequence gaps/out-of-order input;
-- one-bit ciphertext/tag mutations;
-- wrong directional key/session;
-- maximum-size and over-limit plaintext/ciphertext boundaries.
+### End-to-end production transport state sequences
 
-The existing adversarial session tests already cover several of these as examples; the next step is systematic randomized mutation/state-sequence coverage.
-
-### State-machine sequences
-
-Add generated operation sequences for:
+Once a production peer transport is selected, run generated/adversarial sequences across the real connection lifecycle, for example:
 
 ```text
-handshake -> data -> replay -> close/reconnect
+handshake -> encrypted data -> replay -> close -> reconnect
+network transition -> reconnect -> stale frame/session attempt
 message -> ACK -> duplicate message -> duplicate ACK
 signal send -> fetch -> ACK -> expiry
-capability valid -> revoke -> retry/new capability
+capability valid -> revoke -> retry -> replacement capability
 ```
 
-Properties should assert that invalid transitions fail closed and cannot move durable state forward incorrectly.
+The current isolated FsWebRTC experiment is intentionally not used to claim production-transport fuzz acceptance.
 
-### HTTP/API fuzzing
+### Independent testing
 
-The repository still needs endpoint-level malformed JSON/body/boundary fuzzing for:
+External API penetration testing, independent cryptographic review, mobile secure-storage review and broader security assessment remain separate mandatory PLAN items.
 
-- registration;
-- presence;
-- capability revocation;
-- resolve;
-- signaling send/fetch/ACK.
+## Rule for future findings
 
-The 64 KiB Kestrel body limit, JSON depth limit and semantic DTO validation are already present but should be exercised with adversarial generated requests.
-
-### Coverage-guided tooling
-
-Before public production use, evaluate adding a dedicated coverage-guided .NET fuzzing job/tool rather than relying only on deterministic random loops. Any such CI job must remain reproducible enough to persist/minimize newly discovered failures.
-
-## Acceptance rule
-
-A fuzz/property task is complete only when:
-
-- the relevant untrusted parser/state boundary is actually invoked;
-- valid semantic behavior remains covered by normal tests;
-- malformed randomized input is bounded and exception-safe;
-- a discovered defect is fixed in production code, not merely excluded from the corpus;
-- CI executes the regression coverage successfully.
-
-The QR pre-decode size bound is an example of this rule: the fuzz-hardening work identified a real allocation-order weakness and changed the production decoder rather than simply adding a test for the old behavior.
+A fuzz/property task is only accepted when the defect is fixed at the production boundary rather than excluded from the corpus. The earlier QR pre-decode bound and stale session parser test are examples of this discipline: the tests were aligned with the real exposed boundary instead of preserving dead helper APIs solely for the test suite.
