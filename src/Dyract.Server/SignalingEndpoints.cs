@@ -29,7 +29,7 @@ public static class SignalingEndpoints
         IIdentityStore identities,
         ReplayNonceStore replayNonces,
         SignalStore signals,
-        CapabilityRevocationStore revocations,
+        ICapabilityRevocationStore revocations,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -124,13 +124,14 @@ public static class SignalingEndpoints
             return Unauthorized("signature_invalid", "Signal signature could not be verified.");
         }
 
-        var capabilityError = ValidateContactCapability(
+        var capabilityError = await ValidateContactCapabilityAsync(
             request.Capability,
             senderId,
             targetId,
             target.PublicKey,
             revocations,
-            now);
+            now,
+            cancellationToken);
         if (capabilityError is not null)
         {
             return capabilityError;
@@ -281,13 +282,14 @@ public static class SignalingEndpoints
         return Results.NoContent();
     }
 
-    private static IResult? ValidateContactCapability(
+    private static async Task<IResult?> ValidateContactCapabilityAsync(
         ContactCapability capability,
         PeerId requesterId,
         PeerId targetId,
         byte[] targetPublicKey,
-        CapabilityRevocationStore revocations,
-        DateTimeOffset now)
+        ICapabilityRevocationStore revocations,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         if (capability.Version != 1)
         {
@@ -316,7 +318,7 @@ public static class SignalingEndpoints
             return Unauthorized("capability_expired", "Contact capability is invalid or expired.");
         }
 
-        if (revocations.IsRevoked(targetId, capability.CapabilityId, now))
+        if (await revocations.IsRevokedAsync(targetId, capability.CapabilityId, now, cancellationToken))
         {
             return Unauthorized("capability_revoked", "Contact capability has been revoked by its issuer.");
         }
