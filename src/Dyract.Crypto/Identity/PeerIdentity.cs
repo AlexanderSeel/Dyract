@@ -3,7 +3,7 @@ using Dyract.Core.Identity;
 
 namespace Dyract.Crypto.Identity;
 
-public sealed class PeerIdentity : IDisposable
+public sealed class PeerIdentity : IPeerIdentitySigner, IDisposable
 {
     private readonly ECDsa _key;
     private readonly byte[] _publicKey;
@@ -57,8 +57,9 @@ public sealed class PeerIdentity : IDisposable
         return _publicKey.ToArray();
     }
 
-    // Export exists for bootstrap/testing. Production mobile code must protect this
-    // material with platform secure storage and must not persist it as plain data.
+    // Export exists for bootstrap/testing and the current SecureStorage-backed mobile vault.
+    // Protocol callers should depend on IPeerIdentitySigner so a future platform-backed
+    // implementation can keep private key material non-exportable.
     public byte[] ExportPkcs8PrivateKey()
     {
         ThrowIfDisposed();
