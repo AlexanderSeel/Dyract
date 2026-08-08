@@ -51,6 +51,7 @@ if (string.IsNullOrWhiteSpace(redisConnectionString))
 else
 {
     var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+    RedisConnectionPolicy.Validate(redisOptions, builder.Environment.EnvironmentName);
     redisOptions.AbortOnConnectFail = true;
     redisOptions.ClientName = "dyract-directory";
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
