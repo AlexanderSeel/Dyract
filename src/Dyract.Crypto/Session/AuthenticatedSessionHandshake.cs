@@ -42,7 +42,7 @@ public sealed class AuthenticatedSessionInitiator : IDisposable
     public byte[] HelloPacket { get; }
 
     public static AuthenticatedSessionInitiator Create(
-        PeerIdentity localIdentity,
+        IPeerIdentitySigner localIdentity,
         PeerId remotePeerId,
         ReadOnlySpan<byte> remoteIdentityPublicKey,
         string sessionId)
@@ -166,7 +166,7 @@ public sealed class AuthenticatedSessionInitiator : IDisposable
 public static class AuthenticatedSessionResponder
 {
     public static ResponderHandshakeResult Accept(
-        PeerIdentity localIdentity,
+        IPeerIdentitySigner localIdentity,
         PeerId remotePeerId,
         ReadOnlySpan<byte> remoteIdentityPublicKey,
         ReadOnlySpan<byte> helloPacket,
