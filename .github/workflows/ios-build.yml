@@ -16,7 +16,7 @@ on:
       - 'Dyract.Mobile.slnx'
       - '.github/workflows/ios-build.yml'
 
-# Validation marker: first real .NET 10 MAUI iOS simulator build.
+# Validation marker: retry with iOS + Android workloads for multi-target restore.
 concurrency:
   group: ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -50,8 +50,8 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
-      - name: Install MAUI iOS workload
-        run: dotnet workload install maui-ios
+      - name: Install MAUI mobile workloads
+        run: dotnet workload install maui-ios maui-android
 
       - name: Build iOS simulator app
         run: >
