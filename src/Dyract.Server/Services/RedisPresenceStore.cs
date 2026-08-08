@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Dyract.Core.Identity;
 using Dyract.Protocol;
@@ -8,6 +10,7 @@ namespace Dyract.Server.Services;
 /// <summary>
 /// Shared short-lived presence state for multi-instance directory deployments.
 /// Values contain only the reachability metadata already approved for the active lease.
+/// Redis key names use a SHA-256-derived peer token rather than exposing raw Peer IDs.
 /// </summary>
 public sealed class RedisPresenceStore : IPresenceStore
 {
@@ -131,7 +134,10 @@ public sealed class RedisPresenceStore : IPresenceStore
     }
 
     private RedisKey BuildKey(PeerId peerId)
-        => $"{_keyPrefix}:presence:{peerId.Value}";
+    {
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(peerId.Value));
+        return $"{_keyPrefix}:presence:{Convert.ToHexStringLower(digest)}";
+    }
 
     private sealed record RedisPresencePayload(
         string PeerId,
