@@ -29,9 +29,16 @@ public sealed class SqliteSchemaMigrationTests
                 {
                     Assert.Equal(2, migration.Version);
                     Assert.Equal("track-issued-contact-capability", migration.Name);
+                },
+                migration =>
+                {
+                    Assert.Equal(3, migration.Version);
+                    Assert.Equal("durable-attachment-receive-state", migration.Name);
                 });
 
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
         }
         finally
         {
@@ -40,7 +47,7 @@ public sealed class SqliteSchemaMigrationTests
     }
 
     [Fact]
-    public async Task ExistingV1Database_IsUpgradedToV2WithoutLosingEncryptedData()
+    public async Task ExistingV1Database_IsUpgradedToCurrentVersionWithoutLosingEncryptedData()
     {
         var databasePath = CreateDatabasePath();
         try
@@ -56,6 +63,7 @@ public sealed class SqliteSchemaMigrationTests
                 "Existing encrypted contact"));
 
             Assert.False(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
+            Assert.False(await TableExistsAsync(databasePath, "attachment_receives"));
 
             var migratingStore = new MigratingLocalStore(databasePath, keyProvider);
             await migratingStore.InitializeAsync();
@@ -64,9 +72,11 @@ public sealed class SqliteSchemaMigrationTests
             Assert.NotNull(contact);
             Assert.Equal("Existing encrypted contact", contact.DisplayName);
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
 
             var migrations = await ReadMigrationsAsync(databasePath);
-            Assert.Equal([1, 2], migrations.Select(value => value.Version).ToArray());
+            Assert.Equal(new[] { 1, 2, 3 }, migrations.Select(value => value.Version).ToArray());
         }
         finally
         {
@@ -147,6 +157,16 @@ public sealed class SqliteSchemaMigrationTests
         }
 
         return result;
+    }
+
+    private static async Task<bool> TableExistsAsync(string databasePath, string table)
+    {
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $table;";
+        command.Parameters.AddWithValue("$table", table);
+        return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
     }
 
     private static async Task<bool> ColumnExistsAsync(
