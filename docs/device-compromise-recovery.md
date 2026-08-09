@@ -2,9 +2,11 @@
 
 ## Status and purpose
 
-This document records Dyract's current stolen-device/recovery security model and the decisions required before identity recovery ships.
+This document records Dyract's current stolen-device/recovery security model and the decisions required before encrypted identity recovery/export ships.
 
-It is an engineering analysis, not an independent mobile-security audit. The goal is to avoid accidental recovery features that weaken the core identity model or silently replace an identity after secure-storage failure.
+The explicit local destructive-reset path is implemented. Encrypted identity export/restore is not.
+
+This is an engineering analysis, not an independent mobile-security audit. The goal is to avoid recovery features that weaken the core identity model or silently replace an identity after secure-storage failure.
 
 ## Current identity model
 
@@ -27,6 +29,8 @@ Current reinstall rule:
 > A reinstall without an explicit recovery flow is a new installation and therefore a new identity.
 
 If secure identity storage was initialized but cannot be read/imported, Dyract deliberately fails instead of silently generating another identity. Silent regeneration would change the PeerId while presenting itself as the same installation.
+
+The security/recovery screen remains reachable from this failure state so the user can make an explicit destructive-reset decision.
 
 ## Current local-data model
 
@@ -114,14 +118,14 @@ Reasons include:
 - queued/local data could become detached from its identity semantics;
 - silent regeneration creates an unsafe illusion of continuity.
 
-The recovery UI should distinguish:
+The current flow distinguishes:
 
 ```text
 first installation -> generate identity
 known installation + readable key -> load identity
-known installation + unreadable key -> recovery/error flow
+known installation + unreadable key -> fail closed + expose security/reset screen
 explicit reset confirmed -> destroy local identity/data and generate new identity
-explicit verified restore -> restore the chosen identity/recovery package
+explicit verified restore -> future encrypted recovery flow, not implemented
 ```
 
 ### 5. App uninstall/reinstall
@@ -138,7 +142,7 @@ Under the current model, identity and local history are lost.
 
 This is a deliberate consequence of not maintaining central chat/key backups.
 
-Dyract should say this clearly in UX before production use. A privacy-first system should not quietly introduce cloud escrow merely to make device replacement convenient.
+Dyract says this in the security UI. A privacy-first system should not quietly introduce cloud escrow merely to make device replacement convenient.
 
 ## Identity recovery design requirements
 
@@ -200,19 +204,46 @@ If Dyract introduces recovery codes/phrases, possession should be modeled as aut
 - rotation/revocation semantics where technically possible;
 - documented behavior after suspected disclosure.
 
-## Reset semantics
+## Implemented reset semantics
 
-An explicit "Reset Dyract identity" action is destructive and should eventually require a deliberate confirmation flow.
+The shipping app now provides an explicit **Reset identity and local data** action.
 
-A full reset should define and atomically coordinate removal of:
+It requires two deliberate steps:
 
-- long-term identity secret;
-- local-data key;
-- encrypted SQLite database;
-- locally stored incoming/issued capabilities;
-- push token association once push exists;
-- cached presence/signaling/session state;
-- installation-specific settings whose retention could accidentally link old/new identities.
+1. acknowledge a destructive warning;
+2. type the exact confirmation word `RESET`.
+
+The reset is coordinated by a persisted `pending reset` marker. Once the destructive operation starts, UI cancellation does not interrupt the reset. If the process is terminated mid-reset, Dyract completes the pending reset before ordinary identity initialization on the next launch.
+
+The implemented reset performs:
+
+```text
+mark reset pending
+        ↓
+transactionally remove outbox/messages/conversations/contacts
+        ↓
+SQLite secure_delete + WAL truncate + VACUUM best effort
+        ↓
+clear directory configuration
+        ↓
+remove long-term identity SecureStorage value
+        ↓
+remove local-data-key SecureStorage value
+        ↓
+clear identity/local-data initialization markers
+        ↓
+clear reset-pending marker
+        ↓
+generate a fresh identity and local-data key through normal initialization
+```
+
+The SQLite schema and migration ledger are preserved so already-created store instances remain valid after the reset. User rows, including incoming/issued capabilities stored with contacts, are removed.
+
+The new local-data key means pre-reset encrypted content is no longer decryptable through Dyract even if encrypted remnants exist outside the logical database after deletion.
+
+`PRAGMA secure_delete`, WAL truncation and `VACUUM` reduce ordinary SQLite residue, but Dyract does **not** claim forensic secure erase of flash storage. Filesystem snapshots, device backups, wear-leveling and a fully compromised OS are outside the guarantee.
+
+No push-token state exists yet. Before push ships, the reset coordinator must be extended and tested to remove any identity-bound APNs/FCM association.
 
 After reset, Dyract generates a new PeerId. Existing contacts must treat it as a new identity unless a separately reviewed identity-migration protocol is introduced.
 
@@ -220,9 +251,11 @@ After reset, Dyract generates a new PeerId. Existing contacts must treat it as a
 
 The current single-device identity model has no independent credential capable of remotely revoking a stolen identity.
 
-If the only private key is on the stolen phone, the directory cannot safely accept "this key is stolen" from an unauthenticated claimant.
+A local reset **does not revoke the old identity remotely**. If an attacker still possesses the old private key, the directory cannot safely accept a claim from the new unrelated identity that the old key is stolen.
 
-Solving this requires a new trust mechanism, for example one of:
+Existing old-identity capability grants are no longer useful to the reset installation itself and naturally expire, but reset is not a remote compromise-remediation protocol.
+
+Solving remote revocation requires a new trust mechanism, for example one of:
 
 - previously provisioned offline recovery/revocation key;
 - multi-device master identity with device certificates;
@@ -275,22 +308,30 @@ Before claiming hardware-backed/non-exportable identity protection, Dyract still
 
 Until that work is implemented and independently reviewed, documentation should say that Dyract uses platform SecureStorage, not that its identity key is guaranteed hardware non-exportable.
 
-## Required recovery/security UX before production
+## Recovery/security UX state
 
-A security settings screen should eventually expose clear, non-ambiguous state:
+Implemented:
 
 ```text
 Your PeerId / fingerprint
-identity storage status
-recovery configured: yes/no
-export recovery package
-restore identity (pre-initialization or destructive flow)
-reset identity and local data
-issued capability/revocation controls
+identity storage readable/unavailable state
+recovery configured: no
+explicit destructive reset identity and local data
+reset reachable after unreadable initialized identity
+contact capability/revocation controls elsewhere in contact UX
+```
+
+Still required before recovery can be claimed:
+
+```text
+reviewed encrypted recovery package export
+verified restore flow
+reviewed password/KDF design
+physical-device reset validation on Android and iOS
 app-lock option if adopted
 ```
 
-Destructive or identity-changing actions must show that contacts may need to verify/add the new identity again.
+Destructive or identity-changing actions show that contacts must verify/add the new identity again and that local reset is not remote revocation.
 
 ## Logging and telemetry rules
 
@@ -303,19 +344,22 @@ Never place these values in ordinary logs/analytics:
 - contact/message content;
 - raw SecureStorage values.
 
-Errors should use bounded error codes/types rather than serializing secret material into exception telemetry.
+Reset failures shown to the user use bounded status text rather than serializing secret-bearing exception contents into UI or telemetry.
 
 ## Current acceptance conclusion
 
-Repository-side stolen-device/recovery analysis is complete when this document is kept aligned with implementation.
+Repository-side stolen-device/recovery analysis and destructive-reset implementation are complete when this document is kept aligned with implementation.
 
-It does **not** mean recovery is implemented, and it does **not** constitute a mobile secure-storage audit.
+This does **not** mean encrypted identity recovery is implemented, and it does **not** constitute a mobile secure-storage audit.
 
 Current decisions are:
 
 - unreadable initialized identity fails closed;
+- the explicit security screen remains available from that failure state;
+- explicit two-step destructive identity/local-data reset is implemented and resumable;
+- reset rotates both identity and local-data secrets and creates a visibly new PeerId;
 - reinstall without explicit recovery means a new identity;
 - there is no central key/message backup;
 - there is currently no remote stolen-device revocation credential;
-- explicit identity recovery/export/reset UX remains future work;
+- encrypted identity recovery/export/restore remains future reviewed work;
 - non-exportable Android Keystore / iOS Secure Enclave identity keys remain an open production-hardening evaluation.
