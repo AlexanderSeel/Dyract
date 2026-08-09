@@ -33,10 +33,20 @@ public static class SqliteLocalResetter
 
         using (var transaction = connection.BeginTransaction())
         {
-            // Delete explicitly in dependency order. The schema/migration ledger is intentionally
-            // retained so existing singleton stores remain valid after the key rotation.
-            await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receive_chunks;", cancellationToken);
-            await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receives;", cancellationToken);
+            // Attachment tables were introduced after the original local schema. A pending
+            // reset from an older app version must still be completable before migrations run.
+            if (await TableExistsAsync(connection, transaction, "attachment_receive_chunks", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receive_chunks;", cancellationToken);
+            }
+
+            if (await TableExistsAsync(connection, transaction, "attachment_receives", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receives;", cancellationToken);
+            }
+
+            // Delete core user state explicitly in dependency order. The schema/migration ledger
+            // is intentionally retained so existing singleton stores remain valid after key rotation.
             await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken);
             await ExecuteAsync(connection, transaction, "DELETE FROM messages;", cancellationToken);
             await ExecuteAsync(connection, transaction, "DELETE FROM conversations;", cancellationToken);
@@ -47,6 +57,19 @@ public static class SqliteLocalResetter
         // Remove committed WAL history and compact free pages after the transactional wipe.
         await ExecuteConnectionAsync(connection, "PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken);
         await ExecuteConnectionAsync(connection, "VACUUM;", cancellationToken);
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $table_name;";
+        command.Parameters.AddWithValue("$table_name", tableName);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) == 1;
     }
 
     private static async Task ExecuteAsync(
