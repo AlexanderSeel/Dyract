@@ -102,6 +102,9 @@
                         Text="Reset permanently removes contacts, conversations, messages, outbox state and stored capabilities, clears the directory configuration, removes both SecureStorage keys, and creates a new Peer ID. Existing contacts will see this as a different identity." />
                     <Label
                         FontSize="12"
+                        Text="This is a local reset, not remote revocation of the old identity. If an attacker still controls the old private key, Dyract currently has no independent credential that can disable that identity remotely." />
+                    <Label
+                        FontSize="12"
                         Text="The reset is explicit and resumable: if the app is interrupted after reset starts, Dyract completes the pending reset before normal identity initialization on the next launch." />
                     <Button
                         x:Name="ResetIdentityButton"
