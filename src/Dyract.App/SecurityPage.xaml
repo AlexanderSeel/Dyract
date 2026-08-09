@@ -22,6 +22,9 @@
                 </Border.StrokeShape>
                 <VerticalStackLayout Spacing="8">
                     <Label FontAttributes="Bold" Text="Identity" />
+                    <Label
+                        x:Name="IdentityStatusLabel"
+                        FontSize="12" />
                     <Label FontSize="12" Text="Peer ID" />
                     <Label
                         x:Name="PeerIdLabel"
@@ -35,6 +38,7 @@
                         FontSize="12"
                         LineBreakMode="CharacterWrap" />
                     <Button
+                        x:Name="CopyFingerprintButton"
                         Clicked="OnCopyFingerprintClicked"
                         Text="Copy fingerprint" />
                 </VerticalStackLayout>
@@ -52,7 +56,7 @@
                         Text="Android uses the platform SecureStorage/Keystore path and iOS uses Keychain. The current Dyract identity implementation still imports exportable PKCS#8 key material into the app process; hardware-non-exportable identity keys are not implemented yet." />
                     <Label
                         FontSize="12"
-                        Text="If an initialized secure identity becomes unreadable, Dyract fails closed instead of silently generating a new Peer ID." />
+                        Text="If an initialized secure identity becomes unreadable, Dyract fails closed instead of silently generating a new Peer ID. You may explicitly reset it below if you accept permanent loss of the old local identity and data." />
                 </VerticalStackLayout>
             </Border>
 
@@ -68,7 +72,7 @@
                         Text="There is currently no Dyract cloud private-key backup, no recovery phrase, and no server-side message-history backup. Losing this device without future recovery material means losing this identity and its local history." />
                     <Label
                         FontSize="12"
-                        Text="A reinstall without an explicit future recovery flow is treated as a new installation with a new identity." />
+                        Text="Encrypted identity export and restore remain unavailable until the recovery container and password-based key derivation design have been independently reviewed." />
                 </VerticalStackLayout>
             </Border>
 
@@ -92,10 +96,20 @@
                     <RoundRectangle CornerRadius="14" />
                 </Border.StrokeShape>
                 <VerticalStackLayout Spacing="8">
-                    <Label FontAttributes="Bold" Text="Export, restore and reset" />
+                    <Label FontAttributes="Bold" Text="Reset identity and local data" />
                     <Label
                         FontSize="12"
-                        Text="Private-key export, identity restore and destructive identity reset are intentionally unavailable in this build. They will only be enabled after Dyract has a versioned authenticated recovery container, reviewed key derivation, and atomic reset semantics for identity, local-data key, database, capabilities and future push state." />
+                        Text="Reset permanently removes contacts, conversations, messages, outbox state and stored capabilities, clears the directory configuration, removes both SecureStorage keys, and creates a new Peer ID. Existing contacts will see this as a different identity." />
+                    <Label
+                        FontSize="12"
+                        Text="The reset is explicit and resumable: if the app is interrupted after reset starts, Dyract completes the pending reset before normal identity initialization on the next launch." />
+                    <Button
+                        x:Name="ResetIdentityButton"
+                        Clicked="OnResetIdentityClicked"
+                        Text="Reset identity and local data" />
+                    <Label
+                        x:Name="ResetStatusLabel"
+                        FontSize="11" />
                 </VerticalStackLayout>
             </Border>
 
