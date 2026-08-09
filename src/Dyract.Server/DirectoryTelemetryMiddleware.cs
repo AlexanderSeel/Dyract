@@ -1,11 +1,16 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Dyract.Protocol;
+using Microsoft.Extensions.Hosting;
 
 namespace Dyract.Server;
 
 /// <summary>
 /// Records coarse directory operation metrics without copying request bodies, identities,
 /// network candidates, client addresses, nonces, capability IDs or other dynamic protocol data.
+/// In production it also terminates ordinary unhandled request failures with a generic response
+/// so exception messages containing infrastructure or protocol metadata do not fall through to
+/// default hosting diagnostics.
 /// </summary>
 public sealed class DirectoryTelemetryMiddleware
 {
@@ -25,13 +30,16 @@ public sealed class DirectoryTelemetryMiddleware
 
     private readonly RequestDelegate _next;
     private readonly ILogger<DirectoryTelemetryMiddleware> _logger;
+    private readonly IHostEnvironment _environment;
 
     public DirectoryTelemetryMiddleware(
         RequestDelegate next,
-        ILogger<DirectoryTelemetryMiddleware> logger)
+        ILogger<DirectoryTelemetryMiddleware> logger,
+        IHostEnvironment environment)
     {
         _next = next;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -44,6 +52,25 @@ public sealed class DirectoryTelemetryMiddleware
         {
             await _next(context);
             statusCode = context.Response.StatusCode;
+        }
+        catch (Exception exception) when (
+            _environment.IsProduction() &&
+            !context.Response.HasStarted &&
+            !context.RequestAborted.IsCancellationRequested)
+        {
+            Record(operation, StatusCodes.Status500InternalServerError, started);
+            _logger.LogError(
+                DirectoryTelemetryLogEvents.RequestFailed,
+                "Directory operation {Operation} failed with category {FailureCategory}.",
+                operation,
+                ClassifyFailure(exception));
+
+            context.Response.Clear();
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await context.Response.WriteAsJsonAsync(
+                new ApiError("internal_error", "The directory request could not be completed."),
+                cancellationToken: context.RequestAborted);
+            return;
         }
         catch
         {
@@ -114,6 +141,20 @@ public sealed class DirectoryTelemetryMiddleware
         return path.StartsWithSegments("/api/v1") ? "api.unknown" : "http.other";
     }
 
+    public static string ClassifyFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+
+        return exception switch
+        {
+            TimeoutException => "timeout",
+            OperationCanceledException => "canceled",
+            System.Security.Cryptography.CryptographicException => "cryptography",
+            IOException => "io",
+            _ => "internal"
+        };
+    }
+
     private void Record(string operation, int statusCode, long started)
     {
         var statusClass = $"{Math.Clamp(statusCode / 100, 0, 9)}xx";
@@ -144,4 +185,5 @@ public sealed class DirectoryTelemetryMiddleware
 internal static class DirectoryTelemetryLogEvents
 {
     public static readonly EventId RequestCompleted = new(1000, nameof(RequestCompleted));
+    public static readonly EventId RequestFailed = new(1001, nameof(RequestFailed));
 }
