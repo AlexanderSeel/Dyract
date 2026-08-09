@@ -368,6 +368,28 @@ deploy the Debug app, run:
 The script accepts `-AndroidSdkDirectory`, `-JavaSdkDirectory`, and `-AvdName`
 when local paths or the virtual-device name differ from the defaults.
 
+On a machine without an Android emulator and virtual device, let the script
+install its Android 36 system image, accept licenses, create `Dyract_API_36`,
+and then deploy the app:
+
+```powershell
+.\scripts\Run-AndroidEmulator.ps1 -InstallEmulator
+```
+
+Before the first run, install the Android 36 emulator image and create that
+virtual device:
+
+```powershell
+$sdk = "C:\dev\android-sdk"
+$env:JAVA_HOME = "C:\dev\jdk"
+& "$sdk\cmdline-tools\latest\bin\sdkmanager.bat" --sdk_root=$sdk --install `
+  "emulator" "system-images;android-36;google_apis;x86_64"
+& "$sdk\cmdline-tools\latest\bin\avdmanager.bat" create avd `
+  --name "Dyract_API_36" `
+  --package "system-images;android-36;google_apis;x86_64" `
+  --device "pixel_7" --force
+```
+
 iOS simulator on macOS:
 
 ```bash
