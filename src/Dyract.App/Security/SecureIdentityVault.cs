@@ -11,8 +11,8 @@ public interface IIdentityVault
 
 public sealed class SecureIdentityVault : IIdentityVault
 {
-    private const string InitializationMarker = "dyract.identity.initialized.v1";
-    private const string PrivateKeyName = "dyract.identity.pkcs8.v1";
+    internal const string InitializationMarker = "dyract.identity.initialized.v1";
+    internal const string PrivateKeyName = "dyract.identity.pkcs8.v1";
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public async Task<PeerIdentity> GetOrCreateAsync(CancellationToken cancellationToken = default)
