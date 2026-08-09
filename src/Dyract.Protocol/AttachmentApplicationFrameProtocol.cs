@@ -28,7 +28,7 @@ public static class AttachmentApplicationFrameProtocol
     private const int HeaderSize = 6;
     private const int IdSize = 16;
     private const int HashSize = 32;
-    private const int MaximumResumeRanges = 2048;
+    private const int MaximumResumeRanges = AttachmentProtocol.MaximumChunkCount;
 
     public const int MaximumEncodedFrameBytes = 128 * 1024;
 
@@ -90,15 +90,18 @@ public static class AttachmentApplicationFrameProtocol
             throw new InvalidDataException("Attachment resume request contains too many ranges.");
         }
 
-        var previousEnd = 0;
+        var previousEnd = 0L;
         foreach (var range in resume.MissingRanges)
         {
-            if (range.Count <= 0 || range.StartChunkIndex < previousEnd || range.EndChunkIndexExclusive > manifest.ChunkCount)
+            var end = (long)range.StartChunkIndex + range.Count;
+            if (range.Count <= 0 ||
+                range.StartChunkIndex < previousEnd ||
+                end > manifest.ChunkCount)
             {
                 throw new InvalidDataException("Attachment resume ranges must be positive, ordered, non-overlapping and within the manifest.");
             }
 
-            previousEnd = range.EndChunkIndexExclusive;
+            previousEnd = end;
         }
     }
 
@@ -186,17 +189,20 @@ public static class AttachmentApplicationFrameProtocol
             checked((ushort)resume.MissingRanges.Count));
         offset += sizeof(ushort);
 
+        var previousEnd = 0L;
         foreach (var range in resume.MissingRanges)
         {
-            if (range.StartChunkIndex < 0 || range.Count <= 0)
+            var end = (long)range.StartChunkIndex + range.Count;
+            if (range.StartChunkIndex < previousEnd || range.Count <= 0 || end > AttachmentProtocol.MaximumChunkCount)
             {
-                throw new InvalidDataException("Attachment resume range is invalid.");
+                throw new InvalidDataException("Attachment resume ranges must be positive, ordered and non-overlapping.");
             }
 
             BinaryPrimitives.WriteInt32BigEndian(encoded.AsSpan(offset, sizeof(int)), range.StartChunkIndex);
             offset += sizeof(int);
             BinaryPrimitives.WriteInt32BigEndian(encoded.AsSpan(offset, sizeof(int)), range.Count);
             offset += sizeof(int);
+            previousEnd = end;
         }
 
         return encoded;
@@ -278,16 +284,19 @@ public static class AttachmentApplicationFrameProtocol
         }
 
         var ranges = new List<AttachmentChunkRange>(rangeCount);
+        var previousEnd = 0L;
         for (var index = 0; index < rangeCount; index++)
         {
             var start = ReadInt32(encoded, ref offset);
             var count = ReadInt32(encoded, ref offset);
-            if (start < 0 || count <= 0)
+            var end = (long)start + count;
+            if (start < previousEnd || count <= 0 || end > AttachmentProtocol.MaximumChunkCount)
             {
-                throw new InvalidDataException("Attachment resume frame contains an invalid range.");
+                throw new InvalidDataException("Attachment resume frame contains invalid or overlapping ranges.");
             }
 
             ranges.Add(new AttachmentChunkRange(start, count));
+            previousEnd = end;
         }
 
         EnsureFullyConsumed(encoded, offset);
@@ -299,7 +308,7 @@ public static class AttachmentApplicationFrameProtocol
 
     private static void WriteHeader(Span<byte> destination, byte frameType)
     {
-        Magic.CopyTo(destination);
+        Magic.AsSpan().CopyTo(destination);
         destination[4] = AttachmentProtocol.CurrentVersion;
         destination[5] = frameType;
     }
@@ -323,22 +332,13 @@ public static class AttachmentApplicationFrameProtocol
     }
 
     private static int ReadInt32(ReadOnlySpan<byte> source, ref int offset)
-    {
-        var value = BinaryPrimitives.ReadInt32BigEndian(Read(source, ref offset, sizeof(int)));
-        return value;
-    }
+        => BinaryPrimitives.ReadInt32BigEndian(Read(source, ref offset, sizeof(int)));
 
     private static long ReadInt64(ReadOnlySpan<byte> source, ref int offset)
-    {
-        var value = BinaryPrimitives.ReadInt64BigEndian(Read(source, ref offset, sizeof(long)));
-        return value;
-    }
+        => BinaryPrimitives.ReadInt64BigEndian(Read(source, ref offset, sizeof(long)));
 
     private static ushort ReadUInt16(ReadOnlySpan<byte> source, ref int offset)
-    {
-        var value = BinaryPrimitives.ReadUInt16BigEndian(Read(source, ref offset, sizeof(ushort)));
-        return value;
-    }
+        => BinaryPrimitives.ReadUInt16BigEndian(Read(source, ref offset, sizeof(ushort)));
 
     private static string DecodeUtf8(ReadOnlySpan<byte> value)
     {
