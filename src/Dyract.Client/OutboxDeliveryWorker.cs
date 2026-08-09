@@ -12,11 +12,21 @@ public sealed record OutboxDeliveryCycleResult(
     int Failed,
     int ChangedConcurrently);
 
+public sealed record OutboxBacklogDrainResult(
+    int Cycles,
+    int Examined,
+    int Sent,
+    int Failed,
+    int ChangedConcurrently,
+    bool BudgetExhausted);
+
 public sealed class OutboxDeliveryWorker
 {
     private static readonly TimeSpan InitialFailureDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan InitialAckRetryDelay = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromMinutes(2);
+    private const int MaximumBatchSize = 500;
+    private const int MaximumBacklogBudget = 500;
 
     private readonly IOutboxDeliveryQueue _outbox;
     private readonly IPeerApplicationFrameSender _sender;
@@ -40,6 +50,13 @@ public sealed class OutboxDeliveryWorker
         if (string.IsNullOrWhiteSpace(localPeerId.Value))
         {
             throw new ArgumentException("Local PeerId must be initialized.", nameof(localPeerId));
+        }
+
+        if (limit is < 1 or > MaximumBatchSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(limit),
+                $"Outbox delivery limit must be between 1 and {MaximumBatchSize}.");
         }
 
         var due = await _outbox.GetDueOutboxAsync(
@@ -128,6 +145,63 @@ public sealed class OutboxDeliveryWorker
             sent,
             failed,
             changedConcurrently);
+    }
+
+    public async Task<OutboxBacklogDrainResult> ProcessDueBacklogAsync(
+        PeerId localPeerId,
+        int batchSize = 50,
+        int maximumMessages = MaximumBacklogBudget,
+        CancellationToken cancellationToken = default)
+    {
+        if (batchSize is < 1 or > MaximumBatchSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(batchSize),
+                $"Backlog batch size must be between 1 and {MaximumBatchSize}.");
+        }
+
+        if (maximumMessages is < 1 or > MaximumBacklogBudget)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumMessages),
+                $"Backlog message budget must be between 1 and {MaximumBacklogBudget}.");
+        }
+
+        var cycles = 0;
+        var examined = 0;
+        var sent = 0;
+        var failed = 0;
+        var changedConcurrently = 0;
+
+        while (examined < maximumMessages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var remainingBudget = maximumMessages - examined;
+            var currentBatchSize = Math.Min(batchSize, remainingBudget);
+            var cycle = await ProcessDueAsync(
+                localPeerId,
+                currentBatchSize,
+                cancellationToken);
+
+            cycles++;
+            examined += cycle.Examined;
+            sent += cycle.Sent;
+            failed += cycle.Failed;
+            changedConcurrently += cycle.ChangedConcurrently;
+
+            if (cycle.Examined < currentBatchSize)
+            {
+                break;
+            }
+        }
+
+        return new OutboxBacklogDrainResult(
+            cycles,
+            examined,
+            sent,
+            failed,
+            changedConcurrently,
+            BudgetExhausted: examined >= maximumMessages);
     }
 
     internal static TimeSpan ComputeFailureDelay(int attempts)
