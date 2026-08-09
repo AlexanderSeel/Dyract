@@ -25,7 +25,7 @@ ASP.NET configuration key:
 ConnectionStrings:Redis
 ```
 
-Example shape:
+Development example:
 
 ```text
 redis.internal:6379,abortConnect=true
@@ -36,6 +36,51 @@ Production credentials/TLS settings belong in the deployment secret/configuratio
 When Redis is configured, `RedisTransientStateInitializer` performs a startup ping. If the configured shared-state service is unavailable, application startup fails instead of silently falling back to process-local state.
 
 This is deliberate: silently degrading a horizontally scaled directory to local replay/presence/signaling state would change security and correctness semantics.
+
+## Production Redis policy
+
+Production Redis has an explicit fail-closed deployment contract.
+
+Application-enforced requirements in the `Production` environment are:
+
+```text
+ssl=true
+password/ACL authentication present
+allowAdmin=false
+Dyract:Redis:NetworkIsolationConfirmed=true
+```
+
+For environment-variable based deployments, the network confirmation key is:
+
+```text
+Dyract__Redis__NetworkIsolationConfirmed=true
+```
+
+A representative production connection shape is:
+
+```text
+redis.private.example:6380,ssl=true,user=dyract,password=<secret>,allowAdmin=false,abortConnect=true
+```
+
+The actual password/ACL secret must come from protected deployment secret management. It must not be committed to application settings, repository files, container images, logs, or telemetry.
+
+`RedisConnectionPolicy` validates TLS, authentication and non-admin access before the connection is created. The network-isolation flag is intentionally an **operator/deployment attestation**, not a claim that application code can inspect cloud firewall topology. Set it to `true` only after the following network controls are in place:
+
+- Redis has no unrestricted public ingress;
+- the endpoint is private/internal or protected by equivalent network controls;
+- inbound Redis access is restricted to the Dyract directory workload/subnet/security identity as narrowly as the platform permits;
+- firewall/security-group/private-endpoint policy is deployed and reviewed with the application deployment;
+- TLS server certificate validation remains enabled; do not disable certificate validation to make a private endpoint connect;
+- a dedicated Redis credential/ACL identity is used when the platform supports it;
+- Dyract does not receive Redis administrative permissions and `allowAdmin` remains disabled;
+- credential rotation can occur without embedding secrets in source or images;
+- monitoring detects Redis connection failures, authentication failures and availability degradation without logging the connection string or transient values.
+
+The application sets `AbortOnConnectFail=true` and uses client name `dyract-directory`. A configured Redis outage therefore fails startup/runtime operations rather than silently switching to process-local security state.
+
+Redis contains TTL-bound correctness/security state. Production availability/failover should preserve the active dataset during normal failover. Operators must not treat routine `FLUSHDB`/cache replacement as harmless while directory instances are serving traffic, because doing so discards active replay markers, presence leases, registration challenges and signaling state.
+
+Development and test environments intentionally do not require the production TLS/authentication/network attestation so local Redis service containers remain usable.
 
 ## Client library
 
@@ -245,6 +290,7 @@ When Redis is explicitly configured, Dyract treats it as required infrastructure
 
 Startup:
 
+- the production connection policy must pass;
 - Redis must connect and respond to ping;
 - otherwise startup fails.
 
@@ -254,7 +300,7 @@ Runtime:
 - Dyract does not silently switch to in-memory state;
 - this avoids accepting replays or losing cross-instance signaling/presence semantics during a partial outage.
 
-Production deployment should combine this with appropriate Redis availability, TLS/authentication, network isolation, monitoring and retention policies.
+Production deployment should combine this with appropriate Redis availability, monitoring and controlled failover consistent with the production policy above.
 
 ## CI validation
 
@@ -276,16 +322,17 @@ The suite proves:
 - expired signals are not returned;
 - the 64-item target inbox limit is enforced atomically across instances.
 
+`RedisConnectionPolicyTests` additionally covers development allowance plus production rejection of missing TLS, missing authentication, admin access and missing network-isolation attestation.
+
 The normal core suite still exercises all in-memory fallbacks without requiring Redis.
 
 ## Remaining infrastructure work
 
-Shared Redis removes the process-local correctness dependency for registration challenges, replay protection, presence and signaling. Remaining production infrastructure work includes:
+The repository-side production Redis TLS/authentication/network policy is defined and startup-enforced. Remaining production infrastructure work includes:
 
-- deployment secret management;
-- Redis TLS/authentication/network policy;
+- deployment secret management and credential rotation integration;
 - privacy-aware metrics/log retention;
-- distributed/global abuse controls beyond the current process-local ASP.NET rate limiter;
+- distributed/global edge abuse controls beyond application-layer limiting;
 - production STUN/TURN decision and deployment;
 - APNs/FCM wake infrastructure;
 - backup/recovery policy for durable PostgreSQL metadata.
