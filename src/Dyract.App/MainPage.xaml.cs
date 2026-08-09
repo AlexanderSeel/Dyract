@@ -13,6 +13,7 @@ public partial class MainPage : ContentPage
     private readonly ILocalStore _localStore;
     private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
+    private readonly IInstallationResetService _installationResetService;
     private string? _peerId;
     private string? _fingerprint;
     private string? _contactInvitation;
@@ -25,13 +26,15 @@ public partial class MainPage : ContentPage
         IIdentityVault identityVault,
         ILocalStore localStore,
         IIssuedCapabilityStore issuedCapabilityStore,
-        IDirectoryService directoryService)
+        IDirectoryService directoryService,
+        IInstallationResetService installationResetService)
     {
         InitializeComponent();
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
         _localStore = localStore ?? throw new ArgumentNullException(nameof(localStore));
         _issuedCapabilityStore = issuedCapabilityStore ?? throw new ArgumentNullException(nameof(issuedCapabilityStore));
         _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
+        _installationResetService = installationResetService ?? throw new ArgumentNullException(nameof(installationResetService));
     }
 
     protected override async void OnAppearing()
@@ -40,6 +43,8 @@ public partial class MainPage : ContentPage
 
         try
         {
+            await _installationResetService.CompletePendingResetAsync();
+
             if (!_initialized)
             {
                 await InitializeAsync();
@@ -50,11 +55,16 @@ public partial class MainPage : ContentPage
         catch (Exception exception)
         {
             _initialized = false;
+            _peerId = null;
+            _fingerprint = null;
+            _contactInvitation = null;
             PeerIdLabel.Text = "Identity unavailable";
+            FingerprintLabel.Text = "Fingerprint: unavailable";
             CopyPeerIdButton.IsEnabled = false;
             CopyInviteButton.IsEnabled = false;
             ShowInviteQrButton.IsEnabled = false;
-            SecuritySettingsButton.IsEnabled = false;
+            // Keep recovery reachable when an initialized SecureStorage identity cannot be read.
+            SecuritySettingsButton.IsEnabled = true;
             ScanQrButton.IsEnabled = false;
             AddContactButton.IsEnabled = false;
             SaveDirectoryButton.IsEnabled = false;
@@ -144,12 +154,26 @@ public partial class MainPage : ContentPage
 
     private async void OnSecuritySettingsClicked(object? sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_peerId) || string.IsNullOrWhiteSpace(_fingerprint))
-        {
-            return;
-        }
+        await Navigation.PushAsync(new SecurityPage(
+            _peerId,
+            _fingerprint,
+            _installationResetService,
+            OnInstallationResetCompletedAsync));
+    }
 
-        await Navigation.PushAsync(new SecurityPage(_peerId, _fingerprint));
+    private async Task OnInstallationResetCompletedAsync()
+    {
+        _initialized = false;
+        _peerId = null;
+        _fingerprint = null;
+        _contactInvitation = null;
+        InvitationEditor.Text = string.Empty;
+        ContactsView.ItemsSource = null;
+        NoContactsLabel.IsVisible = true;
+
+        await InitializeAsync();
+        await LoadContactsAsync();
+        StatusLabel.Text = "Dyract was reset. A new identity and local-data key were created.";
     }
 
     private async void OnScanQrClicked(object? sender, EventArgs e)
