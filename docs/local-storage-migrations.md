@@ -5,7 +5,7 @@ Dyract treats the local database as device-owned user data. Schema upgrades must
 ## Current version
 
 ```text
-SqliteSchemaMigrationRunner.CurrentVersion = 2
+SqliteSchemaMigrationRunner.CurrentVersion = 4
 ```
 
 The historical database bootstrap still records:
@@ -28,6 +28,8 @@ Current migrations:
 ```text
 1  baseline-v1
 2  track-issued-contact-capability
+3  durable-attachment-receive-state
+4  bound-attachment-receive-reservations
 ```
 
 ### Migration 1 — baseline-v1
@@ -36,18 +38,44 @@ Migration 1 is an **adoption migration**. It does not rewrite the historical sch
 
 ### Migration 2 — track-issued-contact-capability
 
-Migration 2 is the first real schema upgrade:
+Migration 2 adds:
 
 ```sql
 ALTER TABLE contacts
 ADD COLUMN granted_capability BLOB NULL;
 ```
 
-The column stores the capability **this device issued to that contact**, separately from the existing capability received from the contact.
+The column stores the capability **this device issued to that contact**, separately from the existing capability received from the contact. The value is AES-256-GCM protected with the local-data key.
 
-The issued capability is encrypted by `SqliteIssuedCapabilityStore` with AES-256-GCM and the local-data key. Its associated-data context includes the exact contact PeerId.
+### Migration 3 — durable-attachment-receive-state
 
-This enables targeted grant reuse and pre-expiry revocation without putting the outgoing permission into the incoming-capability field or creating a server-side contact graph.
+Migration 3 adds restart-safe partial attachment receive state:
+
+```text
+attachment_receives
+attachment_receive_chunks
+```
+
+The logical key is `(sender_peer_id, attachment_id)`. Chunk rows are deleted automatically when their parent receive state is removed.
+
+The store deliberately keeps only bounded operational geometry in plaintext SQLite columns. Filename, MIME metadata, whole-file SHA-256 and chunk payloads are individually AES-256-GCM protected with the local-data key and associated-data contexts that bind them to the sender/attachment/chunk identity.
+
+This is not a central attachment cache: the data remains inside the device-owned local database.
+
+### Migration 4 — bound-attachment-receive-reservations
+
+Migration 4 adds a SQLite `BEFORE INSERT` trigger that enforces prototype receive reservations atomically at the database boundary:
+
+```text
+maximum active receives globally: 16
+maximum active receives per sender: 4
+maximum declared active bytes globally: 512 MiB
+maximum declared active bytes per sender: 200 MiB
+```
+
+The trigger uses `RAISE(ABORT, 'attachment_receive_quota')`. Enforcing the limits in SQLite prevents two concurrent application paths from independently passing an in-memory count check and exceeding the reservation policy.
+
+The separate protocol maximum remains 100 MiB per attachment.
 
 ## Initialization
 
@@ -71,20 +99,12 @@ record each applied migration
 commit atomically
 ```
 
-A legacy v1 database therefore becomes:
-
-```text
-existing encrypted contacts/messages remain unchanged
-        +
-granted_capability column
-        +
-schema_migrations rows 1 and 2
-```
+A legacy v1 database therefore upgrades in-place while preserving existing contacts/conversations/messages and adding all current schema objects and ledger rows.
 
 ## Invariants
 
 1. Migration versions are positive, sequential integers beginning at 1.
-2. An already released migration is immutable.
+2. An already committed migration is immutable; later policy changes append a new migration.
 3. A migration and its ledger entry are committed in the same SQLite transaction.
 4. A database claiming a newer schema/migration version than the running app supports is rejected.
 5. Missing/gapped/malformed migration history is rejected.
@@ -94,7 +114,7 @@ schema_migrations rows 1 and 2
 9. Destructive migrations require an explicit backup/recovery design and separate review.
 10. The migration runner does not weaken the local encryption boundary; it changes schema metadata/structure only.
 
-## Adding migration v3+
+## Adding migration v5+
 
 When the next real schema change is needed:
 
@@ -104,32 +124,27 @@ When the next real schema change is needed:
 4. add previous-version -> current-version tests;
 5. add a fresh-database test;
 6. add failure/rollback coverage when multiple writes are involved;
-7. verify existing encrypted contacts/conversations/messages remain decryptable;
+7. verify existing encrypted content remains decryptable;
 8. run core CI and both mobile platform builds before release.
 
-Conceptually:
-
-```csharp
-new(3, "meaningful-schema-change", """
-    ALTER TABLE example ADD COLUMN value TEXT NULL;
-    """)
-```
-
-Do **not** advance the schema for bookkeeping alone. Migration 2 exists because it adds real per-contact issued-grant state.
+Do **not** advance the schema for bookkeeping alone.
 
 ## Current automated coverage
 
 The suite verifies:
 
-- a fresh migrating database records migrations 1 and 2 exactly once;
+- a fresh migrating database records migrations 1 through 4 exactly once;
 - migration 2 creates `contacts.granted_capability`;
-- an existing historical v1 database upgrades to v2 without losing encrypted contact data;
+- migrations 3 and 4 create attachment receive tables and the quota trigger;
+- an existing historical v1 database upgrades to the current version without losing encrypted contact data;
 - a database from a newer Dyract build is rejected;
 - malformed legacy schema metadata is rejected;
-- issued capabilities round-trip through encrypted local storage;
-- raw SQLite issued-capability bytes do not contain the stored plaintext value;
-- a wrong local encryption key fails AEAD authentication;
-- issued capabilities cannot be attached to an unknown contact.
+- partial attachment state survives a fresh store instance and produces the expected missing ranges;
+- exact duplicate manifests/chunks are idempotent while changed-content collisions fail closed;
+- attachment receive state is sender-peer scoped;
+- sensitive attachment filename/chunk sentinels do not appear as plaintext in the checkpointed SQLite database;
+- the per-sender active receive limit is enforced at the database boundary;
+- destructive identity reset clears partial attachment state while still supporting databases created before attachment tables existed.
 
 ## Recovery boundary
 
