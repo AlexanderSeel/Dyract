@@ -358,6 +358,16 @@ libraries target `net10.0`. `JavaSdkDirectory` is an MSBuild property; setting
 `JAVA_HOME` alone does not configure this build. `setx` only affects PowerShell
 sessions opened after the command.
 
+To start the `Dyract_API_36` Android virtual device, wait for it to boot, and
+deploy the Debug app, run:
+
+```powershell
+.\scripts\Run-AndroidEmulator.ps1
+```
+
+The script accepts `-AndroidSdkDirectory`, `-JavaSdkDirectory`, and `-AvdName`
+when local paths or the virtual-device name differ from the defaults.
+
 iOS simulator on macOS:
 
 ```bash
