@@ -331,7 +331,7 @@ See `docs/session-security.md` and `docs/protocol-fuzzing.md`.
 **Status: transport-neutral algorithm implemented/tested; shipping scheduler intentionally not connected to experimental transport.**
 
 - [x] transactional message + outbox commit before send.
-- [x] versioned `DYRM` text and delivery ACK frames.
+- [x] versioned `DYRM` text, delivery ACK and read ACK frames.
 - [x] canonical MessageId validation.
 - [x] authenticated sender/recipient scope.
 - [x] durable receive before ACK.
@@ -345,6 +345,9 @@ See `docs/session-security.md` and `docs/protocol-fuzzing.md`.
 - [x] bounded failure backoff.
 - [x] privacy-safe persisted failure codes.
 - [x] two-database lost-first-ACK proof.
+- [x] explicit durable peer-scoped read receipts.
+- [x] presentation ordering under clock skew uses local receive time for incoming messages.
+- [x] latest-message limiting uses the same clock-skew-safe presentation order.
 - [x] experimental authenticated DataChannel message/ACK probe.
 
 Remaining:
@@ -352,9 +355,7 @@ Remaining:
 - [ ] production `IPeerApplicationFrameSender` selected from proven transport.
 - [ ] lifecycle-safe mobile delivery scheduler.
 - [ ] reconnect/session management around outbox worker.
-- [ ] read receipts.
 - [ ] long-offline synchronization strategy.
-- [ ] presentation ordering under clock skew.
 
 See `docs/reliable-messaging.md`.
 
@@ -450,4 +451,5 @@ Transport-dependent product work remains gated by physical evidence.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Define/enforce production Redis TLS/authentication/network policy and edge abuse-control deployment before horizontal public deployment.
 9. Add recovery/security settings UX without introducing weak/plaintext identity export.
-10. Continue platform-native non-exportable key evaluation, coverage-guided fuzzing, privacy-aware observability, independent threat/security review and cryptographic review in parallel.
+10. Define the bounded long-offline synchronization strategy around the durable outbox without introducing a central message mailbox.
+11. Continue platform-native non-exportable key evaluation, coverage-guided fuzzing, privacy-aware observability, independent threat/security review and cryptographic review in parallel.
