@@ -1,10 +1,15 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using Dyract.Crypto.Identity;
 using Dyract.Protocol;
 using Dyract.Server;
+using Dyract.Server.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -31,6 +36,19 @@ public sealed class DirectoryTelemetryTests
         Assert.Equal(expected, DirectoryTelemetryMiddleware.ClassifyOperation(path));
     }
 
+    [Theory]
+    [InlineData(typeof(TimeoutException), "timeout")]
+    [InlineData(typeof(OperationCanceledException), "canceled")]
+    [InlineData(typeof(System.Security.Cryptography.CryptographicException), "cryptography")]
+    [InlineData(typeof(IOException), "io")]
+    [InlineData(typeof(InvalidOperationException), "internal")]
+    public void FailureClassifier_UsesOnlyBoundedCategories(Type exceptionType, string expected)
+    {
+        var exception = (Exception)Activator.CreateInstance(exceptionType, "sensitive detail")!;
+
+        Assert.Equal(expected, DirectoryTelemetryMiddleware.ClassifyFailure(exception));
+    }
+
     [Fact]
     public async Task RequestLog_DoesNotCopyRequestPayloadOrDynamicPathData()
     {
@@ -55,6 +73,41 @@ public sealed class DirectoryTelemetryTests
         Assert.DoesNotContain("/api/v1/identity/challenge", message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ProductionUnhandledFailure_ReturnsAndLogsOnlyBoundedFailureData()
+    {
+        const string sensitiveSentinel = "redis://secret-user:secret-password@203.0.113.9:6380/private";
+        var provider = new CapturingAllLoggerProvider();
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(Environments.Production);
+                builder.ConfigureLogging(logging => logging.AddProvider(provider));
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<IRegistrationChallengeStore>();
+                    services.AddSingleton<IRegistrationChallengeStore>(
+                        new ThrowingRegistrationChallengeStore(sensitiveSentinel));
+                });
+            });
+        using var client = factory.CreateClient();
+        using var identity = PeerIdentity.Generate();
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/identity/challenge",
+            new RegistrationChallengeRequest(Convert.ToBase64String(identity.ExportPublicKey())));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("internal_error", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveSentinel, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveSentinel, string.Join('\n', provider.Messages), StringComparison.Ordinal);
+        Assert.Contains(
+            provider.Messages,
+            message => message.Contains("identity.challenge", StringComparison.Ordinal) &&
+                       message.Contains("category internal", StringComparison.Ordinal));
+    }
+
     private sealed class CapturingTelemetryLoggerProvider : ILoggerProvider
     {
         public ConcurrentQueue<string> Messages { get; } = new();
@@ -66,6 +119,18 @@ public sealed class DirectoryTelemetryTests
                     typeof(DirectoryTelemetryMiddleware).FullName,
                     StringComparison.Ordinal),
                 Messages);
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class CapturingAllLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName)
+            => new CapturingLogger(enabled: true, Messages);
 
         public void Dispose()
         {
@@ -92,5 +157,26 @@ public sealed class DirectoryTelemetryTests
                 messages.Enqueue(formatter(state, exception));
             }
         }
+    }
+
+    private sealed class ThrowingRegistrationChallengeStore(string message) : IRegistrationChallengeStore
+    {
+        public ValueTask<RegistrationChallenge> CreateAsync(
+            Dyract.Core.Identity.PeerId peerId,
+            byte[] publicKey,
+            DateTimeOffset now,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException(message);
+
+        public ValueTask<RegistrationChallenge?> GetAsync(
+            string challengeId,
+            DateTimeOffset now,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public ValueTask<bool> TryConsumeAsync(
+            string challengeId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }
