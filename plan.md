@@ -52,6 +52,7 @@ docs/
   session-security.md
   reliable-messaging.md
   signaling.md
+  attachments.md
   transport-spike.md
   local-storage-migrations.md
   server-database-migrations.md
@@ -383,14 +384,30 @@ See `docs/reliable-messaging.md`.
 
 ## 11. Phase 7 — attachments
 
-**Status: not implemented.**
+**Status: transport-neutral manifest/chunk/resume/integrity foundation implemented; session/storage/mobile integration remains.**
 
-- [ ] versioned manifest.
-- [ ] chunked direct transfer.
-- [ ] resume by missing ranges.
-- [ ] SHA-256 integrity verification.
-- [ ] transfer limits and safe filenames/content handling.
-- [ ] local cleanup/thumbnails.
+Implemented:
+
+- [x] versioned bounded attachment manifest model.
+- [x] fixed 64 KiB canonical chunk geometry and validation.
+- [x] resume planning through coalesced missing chunk-index ranges.
+- [x] streaming SHA-256 whole-file size/integrity verification.
+- [x] 100 MiB prototype transfer limit.
+- [x] bounded display filename and simple MIME metadata validation.
+- [x] remote filename explicitly treated as metadata, not a trusted local path.
+
+Remaining:
+
+- [ ] versioned manifest/chunk/resume application frames inside authenticated `DYSE` sessions.
+- [ ] chunked direct-transfer integration through the proven production peer transport.
+- [ ] durable partial receive/chunk state for restart-safe resume.
+- [ ] idempotent duplicate chunk handling and changed-content collision rejection.
+- [ ] per-peer/global temporary-storage and concurrent-transfer quotas.
+- [ ] mobile file picker/provider/destination handling.
+- [ ] abandoned temporary-file cleanup and thumbnails.
+- [ ] Android/iOS interruption, resume, low-disk and malicious-manifest validation.
+
+See `docs/attachments.md`.
 
 ## 12. Phase 8 — production infrastructure
 
@@ -465,3 +482,4 @@ Transport-dependent product work remains gated by physical evidence.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
 10. Configure/validate production secret management, observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
+11. Continue attachment durable-receive/resume state and authenticated application framing without connecting it to an unproven production transport.
