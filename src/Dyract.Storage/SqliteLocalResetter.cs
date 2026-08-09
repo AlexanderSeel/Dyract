@@ -25,16 +25,26 @@ public static class SqliteLocalResetter
 
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
-        using var transaction = connection.BeginTransaction();
 
-        // Delete explicitly in dependency order. The schema/migration ledger is intentionally
-        // retained so existing singleton stores remain valid after the key rotation.
-        await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken);
-        await ExecuteAsync(connection, transaction, "DELETE FROM messages;", cancellationToken);
-        await ExecuteAsync(connection, transaction, "DELETE FROM conversations;", cancellationToken);
-        await ExecuteAsync(connection, transaction, "DELETE FROM contacts;", cancellationToken);
+        // Best-effort reduction of deleted-row residue in SQLite pages. The subsequent key
+        // rotation remains the confidentiality boundary; flash wear-leveling means an app
+        // must not claim forensic secure erase of the physical device.
+        await ExecuteConnectionAsync(connection, "PRAGMA secure_delete=ON;", cancellationToken);
 
-        await transaction.CommitAsync(cancellationToken);
+        using (var transaction = connection.BeginTransaction())
+        {
+            // Delete explicitly in dependency order. The schema/migration ledger is intentionally
+            // retained so existing singleton stores remain valid after the key rotation.
+            await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken);
+            await ExecuteAsync(connection, transaction, "DELETE FROM messages;", cancellationToken);
+            await ExecuteAsync(connection, transaction, "DELETE FROM conversations;", cancellationToken);
+            await ExecuteAsync(connection, transaction, "DELETE FROM contacts;", cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        // Remove committed WAL history and compact free pages after the transactional wipe.
+        await ExecuteConnectionAsync(connection, "PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken);
+        await ExecuteConnectionAsync(connection, "VACUUM;", cancellationToken);
     }
 
     private static async Task ExecuteAsync(
@@ -45,6 +55,16 @@ public static class SqliteLocalResetter
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ExecuteConnectionAsync(
+        SqliteConnection connection,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
