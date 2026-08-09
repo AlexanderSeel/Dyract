@@ -55,9 +55,11 @@ docs/
   transport-spike.md
   local-storage-migrations.md
   server-database-migrations.md
+  server-backup-restore.md
   capability-revocation.md
   redis-transient-state.md
   rate-limiting.md
+  observability.md
   threat-model.md
   protocol-fuzzing.md
   device-compromise-recovery.md
@@ -89,16 +91,18 @@ Implemented:
 - [x] Redis 8 integration CI.
 - [x] layered process-local + Redis shared application request limiting.
 - [x] production Redis TLS/authentication/non-admin/network-isolation startup policy.
+- [x] privacy-aware structured application logs/metrics and retention policy.
+- [x] server metadata backup/restore policy.
 - [x] ASP.NET integration tests.
 
 Remaining:
 
 - [ ] production secret management.
-- [ ] privacy-aware structured logs/metrics/retention.
 - [ ] production edge/network DDoS and abuse-control deployment/validation.
-- [ ] server metadata backup/restore policy.
+- [ ] production observability backend/access/retention configuration and validation.
+- [ ] production PostgreSQL backup/PITR/retention configuration and restore-drill validation.
 
-See `docs/server-database-migrations.md`, `docs/redis-transient-state.md` and `docs/rate-limiting.md`.
+See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md` and `docs/observability.md`.
 
 ## 5. Phase 1 — contact authorization, presence and signaling
 
@@ -400,14 +404,16 @@ See `docs/reliable-messaging.md`.
 - [x] Redis shared fixed-window application rate limiting across directory instances.
 - [x] shared limiter client-partition hashing and middleware routing tests.
 - [x] production Redis TLS/authentication/non-admin/network-isolation policy and startup enforcement.
+- [x] privacy-aware application logs/metrics + repository retention policy.
+- [x] server metadata backup/restore policy.
 - [ ] production edge/network DDoS/WAF/global abuse-control deployment and validation.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
 - [ ] secret/key management.
-- [ ] privacy-aware logs/metrics/retention.
-- [ ] server metadata backup/restore policy.
+- [ ] production observability backend/access/retention deployment validation.
+- [ ] production PostgreSQL backup/PITR/retention deployment and restore-drill validation.
 
-See `docs/server-database-migrations.md`, `docs/redis-transient-state.md` and `docs/rate-limiting.md`.
+See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md` and `docs/observability.md`.
 
 ## 13. Phase 9 — security hardening
 
@@ -452,4 +458,4 @@ Transport-dependent product work remains gated by physical evidence.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Implement encrypted identity recovery/export and destructive reset UX without introducing plaintext/cloud-escrow key handling.
-10. Continue platform-native non-exportable key evaluation, coverage-guided fuzzing, privacy-aware observability, independent threat/security review and cryptographic review in parallel.
+10. Configure/validate production secret management, observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
