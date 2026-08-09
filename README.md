@@ -333,8 +333,30 @@ Android:
 
 ```bash
 dotnet workload install maui-android
-dotnet build src/Dyract.App/Dyract.App.csproj -f net10.0-android
 ```
+
+Install the Android SDK components and accept their licenses. Substitute the
+paths for the local Android SDK and JDK installation:
+
+```powershell
+dotnet build .\src\Dyract.App\Dyract.App.csproj -t:InstallAndroidDependencies -f net10.0-android `
+  -p:AndroidSdkDirectory=C:\dev\android-sdk `
+  -p:JavaSdkDirectory=C:\dev\jdk `
+  -p:AcceptAndroidSdkLicenses=True
+```
+
+Build the mobile solution with the same paths:
+
+```powershell
+dotnet build .\Dyract.Mobile.slnx `
+  -p:AndroidSdkDirectory=C:\dev\android-sdk `
+  -p:JavaSdkDirectory=C:\dev\jdk
+```
+
+Do not pass `-f net10.0-android` when building `Dyract.Mobile.slnx`: its shared
+libraries target `net10.0`. `JavaSdkDirectory` is an MSBuild property; setting
+`JAVA_HOME` alone does not configure this build. `setx` only affects PowerShell
+sessions opened after the command.
 
 iOS simulator on macOS:
 
