@@ -395,10 +395,20 @@ public sealed class SqliteLocalStore : ILocalStore
                        direction, message_type, state, created_utc, delivered_utc, read_utc, payload
                 FROM messages
                 WHERE conversation_id = $conversation_id
-                ORDER BY created_utc DESC, message_id DESC
+                ORDER BY
+                    CASE
+                        WHEN direction = 0 THEN COALESCE(delivered_utc, created_utc)
+                        ELSE created_utc
+                    END DESC,
+                    message_id DESC
                 LIMIT $limit
             )
-            ORDER BY created_utc ASC, message_id ASC;
+            ORDER BY
+                CASE
+                    WHEN direction = 0 THEN COALESCE(delivered_utc, created_utc)
+                    ELSE created_utc
+                END ASC,
+                message_id ASC;
             """;
         command.Parameters.AddWithValue("$conversation_id", conversationId);
         command.Parameters.AddWithValue("$limit", limit);
