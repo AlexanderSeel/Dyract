@@ -34,11 +34,17 @@ public sealed class SqliteSchemaMigrationTests
                 {
                     Assert.Equal(3, migration.Version);
                     Assert.Equal("durable-attachment-receive-state", migration.Name);
+                },
+                migration =>
+                {
+                    Assert.Equal(4, migration.Version);
+                    Assert.Equal("bound-attachment-receive-reservations", migration.Name);
                 });
 
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
+            Assert.True(await TriggerExistsAsync(databasePath, "attachment_receives_quota_before_insert"));
         }
         finally
         {
@@ -74,9 +80,10 @@ public sealed class SqliteSchemaMigrationTests
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
+            Assert.True(await TriggerExistsAsync(databasePath, "attachment_receives_quota_before_insert"));
 
             var migrations = await ReadMigrationsAsync(databasePath);
-            Assert.Equal(new[] { 1, 2, 3 }, migrations.Select(value => value.Version).ToArray());
+            Assert.Equal(new[] { 1, 2, 3, 4 }, migrations.Select(value => value.Version).ToArray());
         }
         finally
         {
@@ -164,8 +171,18 @@ public sealed class SqliteSchemaMigrationTests
         await using var connection = new SqliteConnection($"Data Source={databasePath}");
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $table;";
-        command.Parameters.AddWithValue("$table", table);
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
+        command.Parameters.AddWithValue("$name", table);
+        return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+    }
+
+    private static async Task<bool> TriggerExistsAsync(string databasePath, string trigger)
+    {
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = $name;";
+        command.Parameters.AddWithValue("$name", trigger);
         return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
     }
 
