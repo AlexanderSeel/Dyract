@@ -88,12 +88,12 @@ Implemented:
 - [x] Redis startup availability check/fail-closed behavior.
 - [x] Redis 8 integration CI.
 - [x] layered process-local + Redis shared application request limiting.
+- [x] production Redis TLS/authentication/non-admin/network-isolation startup policy.
 - [x] ASP.NET integration tests.
 
 Remaining:
 
 - [ ] production secret management.
-- [ ] Redis TLS/authentication/network deployment policy.
 - [ ] privacy-aware structured logs/metrics/retention.
 - [ ] production edge/network DDoS and abuse-control deployment/validation.
 - [ ] server metadata backup/restore policy.
@@ -242,11 +242,11 @@ See `docs/local-storage-migrations.md`.
 - [x] local conversation screen.
 - [x] locally queued text messages.
 - [x] capability-protected reachability check.
+- [x] recovery/security status screen with PeerId/fingerprint/protection/recovery state.
 - [x] compiled XAML bindings for contact/message list templates.
 
 Remaining:
 
-- [ ] recovery/security settings screen.
 - [ ] accessibility/polish/localization.
 - [ ] physical iOS UX/runtime validation.
 
@@ -399,7 +399,7 @@ See `docs/reliable-messaging.md`.
 - [x] process-local request/rate controls.
 - [x] Redis shared fixed-window application rate limiting across directory instances.
 - [x] shared limiter client-partition hashing and middleware routing tests.
-- [ ] production Redis TLS/authentication/network policy.
+- [x] production Redis TLS/authentication/non-admin/network-isolation policy and startup enforcement.
 - [ ] production edge/network DDoS/WAF/global abuse-control deployment and validation.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
@@ -450,6 +450,6 @@ Transport-dependent product work remains gated by physical evidence.
 5. Validate the shipping iOS UI/QR/SecureStorage path on a physical iPhone.
 6. If Android transport is viable, implement the production Android transport/frame sender, reconnect/session ownership and lifecycle-safe outbox/backlog scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
-8. Define/enforce production Redis TLS/authentication/network policy and edge abuse-control deployment before horizontal public deployment.
-9. Add recovery/security settings UX without introducing weak/plaintext identity export.
+8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
+9. Implement encrypted identity recovery/export and destructive reset UX without introducing plaintext/cloud-escrow key handling.
 10. Continue platform-native non-exportable key evaluation, coverage-guided fuzzing, privacy-aware observability, independent threat/security review and cryptographic review in parallel.
