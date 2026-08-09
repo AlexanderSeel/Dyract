@@ -6,8 +6,8 @@ namespace Dyract.App.Security;
 
 public sealed class SecureLocalEncryptionKeyProvider : ILocalEncryptionKeyProvider
 {
-    private const string InitializationMarker = "dyract.localdata.initialized.v1";
-    private const string EncryptionKeyName = "dyract.localdata.aes256.v1";
+    internal const string InitializationMarker = "dyract.localdata.initialized.v1";
+    internal const string EncryptionKeyName = "dyract.localdata.aes256.v1";
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public async ValueTask<byte[]> GetOrCreateKeyAsync(CancellationToken cancellationToken = default)
