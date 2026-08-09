@@ -31,6 +31,7 @@ public static class AttachmentProtocol
     public const int CurrentVersion = 1;
     public const int ChunkSizeBytes = 64 * 1024;
     public const long MaximumAttachmentBytes = 100L * 1024 * 1024;
+    public const int MaximumChunkCount = (int)(MaximumAttachmentBytes / ChunkSizeBytes);
     public const int MaximumFileNameLength = 128;
     public const int MaximumContentTypeLength = 127;
     public const int AttachmentIdHexLength = 32;
