@@ -7,6 +7,8 @@ namespace Dyract.Tests;
 
 public sealed class RedisConnectionPolicyTests
 {
+    private static readonly object EnvironmentGate = new();
+
     [Fact]
     public void Development_AllowsLocalUnauthenticatedRedisForTestMode()
     {
@@ -21,7 +23,7 @@ public sealed class RedisConnectionPolicyTests
         var options = ConfigurationOptions.Parse("redis.example.test:6379,password=secret");
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => RedisConnectionPolicy.Validate(options, Environments.Production));
+            () => RedisConnectionPolicy.Validate(options, Environments.Production, networkIsolationConfirmed: true));
 
         Assert.Contains("TLS", exception.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("secret", exception.Message, StringComparison.Ordinal);
@@ -33,7 +35,7 @@ public sealed class RedisConnectionPolicyTests
         var options = ConfigurationOptions.Parse("redis.example.test:6380,ssl=true");
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => RedisConnectionPolicy.Validate(options, Environments.Production));
+            () => RedisConnectionPolicy.Validate(options, Environments.Production, networkIsolationConfirmed: true));
 
         Assert.Contains("authentication", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -45,17 +47,58 @@ public sealed class RedisConnectionPolicyTests
             "redis.example.test:6380,ssl=true,password=secret,allowAdmin=true");
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => RedisConnectionPolicy.Validate(options, Environments.Production));
+            () => RedisConnectionPolicy.Validate(options, Environments.Production, networkIsolationConfirmed: true));
 
         Assert.Contains("administrative", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Production_AcceptsTlsAuthenticatedNonAdminConnection()
+    public void Production_RejectsMissingNetworkIsolationConfirmation()
     {
         var options = ConfigurationOptions.Parse(
             "redis.example.test:6380,ssl=true,password=secret,allowAdmin=false");
 
-        RedisConnectionPolicy.Validate(options, Environments.Production);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => RedisConnectionPolicy.Validate(options, Environments.Production, networkIsolationConfirmed: false));
+
+        Assert.Contains("network isolation", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(RedisConnectionPolicy.NetworkIsolationConfirmationKey, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Production_AcceptsTlsAuthenticatedNonAdminIsolatedConnection()
+    {
+        var options = ConfigurationOptions.Parse(
+            "redis.example.test:6380,ssl=true,password=secret,allowAdmin=false");
+
+        RedisConnectionPolicy.Validate(options, Environments.Production, networkIsolationConfirmed: true);
+    }
+
+    [Fact]
+    public void Production_DefaultValidationReadsDeploymentEnvironmentConfirmation()
+    {
+        var options = ConfigurationOptions.Parse(
+            "redis.example.test:6380,ssl=true,password=secret,allowAdmin=false");
+
+        lock (EnvironmentGate)
+        {
+            var previous = Environment.GetEnvironmentVariable(
+                RedisConnectionPolicy.NetworkIsolationConfirmationEnvironmentVariable);
+            try
+            {
+                Environment.SetEnvironmentVariable(
+                    RedisConnectionPolicy.NetworkIsolationConfirmationEnvironmentVariable,
+                    bool.TrueString);
+
+                RedisConnectionPolicy.Validate(options, Environments.Production);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(
+                    RedisConnectionPolicy.NetworkIsolationConfirmationEnvironmentVariable,
+                    previous);
+            }
+        }
     }
 }
