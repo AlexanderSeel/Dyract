@@ -35,6 +35,8 @@ public static class SqliteLocalResetter
         {
             // Delete explicitly in dependency order. The schema/migration ledger is intentionally
             // retained so existing singleton stores remain valid after the key rotation.
+            await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receive_chunks;", cancellationToken);
+            await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receives;", cancellationToken);
             await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken);
             await ExecuteAsync(connection, transaction, "DELETE FROM messages;", cancellationToken);
             await ExecuteAsync(connection, transaction, "DELETE FROM conversations;", cancellationToken);
