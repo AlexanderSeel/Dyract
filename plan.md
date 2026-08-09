@@ -204,15 +204,19 @@ See `docs/signaling.md` and `docs/redis-transient-state.md`.
 - [x] iOS `iossimulator-arm64` Release CI on macOS 26 / Xcode 26.6.
 - [x] current Android and iOS shipping builds are warning-clean.
 - [x] repository stolen-device/recovery security analysis.
+- [x] explicit two-step destructive identity/local-data reset.
+- [x] reset remains reachable when an initialized identity is unreadable.
+- [x] persisted pending-reset marker resumes interrupted reset before normal initialization.
+- [x] reset rotates identity/local-data secrets and clears identity-bound SQLite/capability/directory state.
 
 Remaining:
 
 - [ ] physical-device iOS runtime validation.
 - [ ] physical-device QR/camera validation.
+- [ ] physical Android/iOS destructive-reset validation.
 - [ ] non-exportable platform-native identity-key evaluation.
 - [ ] Secure Enclave evaluation.
 - [ ] encrypted identity export/recovery.
-- [ ] identity reset/recovery UX.
 
 See `docs/device-compromise-recovery.md`.
 
@@ -229,10 +233,11 @@ See `docs/device-compromise-recovery.md`.
 - [x] v2 adds encrypted per-contact issued-capability state.
 - [x] existing encrypted contact data preserved through upgrade tests.
 - [x] newer/malformed database versions rejected fail-closed.
+- [x] transactional user-row reset preserves schema/migration ledger for in-process key rotation.
 
-Operational metadata such as Peer IDs and timestamps remains visible in SQLite; Dyract does not claim full-file opacity.
+Operational metadata such as Peer IDs and timestamps remains visible in SQLite during normal use; Dyract does not claim full-file opacity or forensic secure erase after reset.
 
-See `docs/local-storage-migrations.md`.
+See `docs/local-storage-migrations.md` and `docs/device-compromise-recovery.md`.
 
 ### Current mobile UX
 
@@ -247,6 +252,7 @@ See `docs/local-storage-migrations.md`.
 - [x] locally queued text messages.
 - [x] capability-protected reachability check.
 - [x] recovery/security status screen with PeerId/fingerprint/protection/recovery state.
+- [x] destructive reset confirmation/recovery flow.
 - [x] compiled XAML bindings for contact/message list templates.
 
 Remaining:
@@ -453,9 +459,9 @@ Transport-dependent product work remains gated by physical evidence.
 2. Record observed candidate categories, selected path, authenticated-session result, `DYRT` RTT and `DYRM` ACK RTT.
 3. Repeat across NAT/cellular/IPv6/network transitions.
 4. Decide FsWebRTC viability versus the 16 KiB native-library blocker.
-5. Validate the shipping iOS UI/QR/SecureStorage path on a physical iPhone.
+5. Validate the shipping iOS UI/QR/SecureStorage/reset path on a physical iPhone and validate reset on Android.
 6. If Android transport is viable, implement the production Android transport/frame sender, reconnect/session ownership and lifecycle-safe outbox/backlog scheduler.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
-9. Implement encrypted identity recovery/export and destructive reset UX without introducing plaintext/cloud-escrow key handling.
+9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
 10. Configure/validate production secret management, observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
