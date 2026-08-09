@@ -22,35 +22,30 @@ public static class MauiProgram
         builder.Services.AddSingleton<ILocalStore>(services =>
         {
             var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
-            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new MigratingLocalStore(databasePath, keyProvider);
+            return new MigratingLocalStore(InstallationResetService.LocalDatabasePath, keyProvider);
         });
         builder.Services.AddSingleton<SqliteIncomingMessageStore>(services =>
         {
             var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
             var localStore = services.GetRequiredService<ILocalStore>();
-            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new SqliteIncomingMessageStore(databasePath, keyProvider, localStore);
+            return new SqliteIncomingMessageStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
         builder.Services.AddSingleton<SqliteReadReceiptStore>(services =>
         {
             var localStore = services.GetRequiredService<ILocalStore>();
-            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new SqliteReadReceiptStore(databasePath, localStore);
+            return new SqliteReadReceiptStore(InstallationResetService.LocalDatabasePath, localStore);
         });
         builder.Services.AddSingleton<SqliteOutboxDeliveryQueue>(services =>
         {
             var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
             var localStore = services.GetRequiredService<ILocalStore>();
-            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new SqliteOutboxDeliveryQueue(databasePath, keyProvider, localStore);
+            return new SqliteOutboxDeliveryQueue(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
         builder.Services.AddSingleton<SqliteIssuedCapabilityStore>(services =>
         {
             var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
             var localStore = services.GetRequiredService<ILocalStore>();
-            var databasePath = Path.Combine(FileSystem.AppDataDirectory, "dyract-local-v1.db3");
-            return new SqliteIssuedCapabilityStore(databasePath, keyProvider, localStore);
+            return new SqliteIssuedCapabilityStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
         builder.Services.AddSingleton<IIncomingMessageStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
@@ -67,6 +62,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<PeerMessageProcessor>();
         builder.Services.AddSingleton<PeerReadReceiptService>();
         builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
+        builder.Services.AddSingleton<IInstallationResetService, InstallationResetService>();
         builder.Services.AddSingleton<IDirectoryService, DirectoryService>();
         builder.Services.AddSingleton<IDirectorySignalingService, DirectorySignalingService>();
         builder.Services.AddSingleton<IPeerSignalingGateway, DirectoryPeerSignalingGateway>();
