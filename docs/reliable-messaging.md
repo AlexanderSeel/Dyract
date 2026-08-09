@@ -221,6 +221,47 @@ A remote peer controls the `CreatedAt` carried in its text frame, so that timest
 
 Both the limited "latest N" selection and the final ascending presentation order use this rule. A remote device whose clock is days behind or ahead therefore cannot push a newly received message outside the current conversation window merely through clock skew. The original remote `CreatedAt` is still retained on the message for protocol identity/audit semantics.
 
+## Long-offline catch-up
+
+Dyract does not introduce a central offline message mailbox. The durable sender outbox is the synchronization source for one-to-one messages that have not yet been acknowledged.
+
+If Bob is offline for hours or days while Alice sends messages, Alice retains those exact messages locally. When a production transport session can be re-established, `OutboxDeliveryWorker.ProcessDueBacklogAsync` can drain the due backlog in bounded pages:
+
+```text
+reconnect / foreground / successful wake
+        |
+        v
+read due outbox page (default 50)
+        |
+        v
+send each exact DYRM message
+        |
+        +-- success -> move ACK retry into the future
+        +-- failure -> move failure retry into the future
+        +-- concurrent ACK -> row stays removed
+        |
+        v
+read next due page
+        |
+        v
+stop when page is short or activation budget is exhausted
+```
+
+The default activation budget is 500 messages, with an allowed batch size up to 500. This prevents an unbounded reconnect loop from monopolizing battery, CPU or network. `OutboxBacklogDrainResult.BudgetExhausted` tells the future lifecycle scheduler that the current activation consumed its explicit budget; a later foreground/wake/reconnect opportunity can continue draining remaining due rows.
+
+The design relies on existing reliability properties rather than a second synchronization protocol:
+
+- unacknowledged messages remain durable on the sender;
+- each retry preserves MessageId, CreatedAt and text;
+- the receiver durably inserts before ACK;
+- duplicates are idempotent and re-ACKed;
+- successful/failed attempts are moved out of the immediate due set, so the next page advances through older backlog;
+- no message body is uploaded to the directory, Redis, PostgreSQL, APNs or FCM.
+
+This is intentionally one-device-to-one-device synchronization. If the sender device is lost or its local data is deleted before delivery, Dyract has no cloud history from which to reconstruct the message. Multi-device synchronization and cloud backup remain separate deferred features because they materially change the privacy model.
+
+The transport/lifecycle trigger remains open: the shipping app must invoke the bounded drain only after a production peer session is proven and integrated.
+
 ## Lost-ACK proof
 
 `ReliableMessagingEndToEndTests` uses two separate encrypted SQLite databases to model Alice and Bob.
@@ -246,7 +287,7 @@ Alice removes M from outbox
 
 The test uses one shared simulated clock for sender retry scheduling and both receiver timestamp validators, matching the single-time-domain behavior expected on actual devices while keeping the scenario deterministic.
 
-`ReadReceiptTests` additionally covers durable explicit read state, peer-scoped read ACK processing, wrong-peer rejection, and a read ACK superseding a lost delivery ACK. `MessagePresentationOrderingTests` covers a remote clock skewed far into the past while ensuring the latest-message limit still follows local receive order.
+`ReadReceiptTests` additionally covers durable explicit read state, peer-scoped read ACK processing, wrong-peer rejection, and a read ACK superseding a lost delivery ACK. `MessagePresentationOrderingTests` covers a remote clock skewed far into the past while ensuring the latest-message limit still follows local receive order. `OutboxBacklogDrainTests` covers multi-page catch-up and the hard per-activation message budget.
 
 ## Concurrency behavior
 
@@ -277,14 +318,14 @@ Implemented:
 - bounded ACK/failure retry scheduling;
 - privacy-safe persisted failure codes;
 - lost-first-ACK end-to-end integration test;
-- clock-skew-safe local presentation ordering and latest-message selection.
+- clock-skew-safe local presentation ordering and latest-message selection;
+- bounded multi-page long-offline backlog catch-up without a server message store.
 
 Still intentionally open:
 
 - production `IPeerApplicationFrameSender` implementation;
 - long-running mobile delivery scheduler / lifecycle integration;
 - reconnect/session management around the worker;
-- multi-message synchronization after long offline periods;
 - physical-device proof over the experimental authenticated WebRTC path.
 
 The shipping app must not start the outbox worker against FsWebRTC until the physical Android transport matrix succeeds and the current FsWebRTC Android 16 KB native-library blocker is resolved or the transport dependency changes.
