@@ -1,6 +1,6 @@
 # Reliable peer messaging
 
-Dyract's reliable messaging layer is intentionally independent from the concrete peer transport. A WebRTC DataChannel, future native transport, or test loopback only supplies an authenticated byte channel. Message identity, durable receive semantics, delivery acknowledgements and retries live above that boundary.
+Dyract's reliable messaging layer is intentionally independent from the concrete peer transport. A WebRTC DataChannel, future native transport, or test loopback only supplies an authenticated byte channel. Message identity, durable receive semantics, delivery/read acknowledgements and retries live above that boundary.
 
 ## State flow
 
@@ -39,10 +39,13 @@ Sent                  Failed
                v
           Delivered
                |
-        remove outbox row
+       explicit user read
+               |
+               v
+             Read
 ```
 
-A successful socket/DataChannel write is **not** delivery. Only a valid ACK from the authenticated intended recipient removes the sender's outbox item.
+A successful socket/DataChannel write is **not** delivery. Only a valid ACK from the authenticated intended recipient removes the sender's outbox item. A message becomes `Read` only from an explicit peer-scoped read acknowledgement; delivery itself never implies that the user read the message.
 
 ## `DYRM` application frames
 
@@ -53,6 +56,7 @@ Current frame types:
 ```text
 1  text message
 2  delivery ACK
+3  read ACK
 ```
 
 Common fields:
@@ -69,7 +73,7 @@ payload length
 payload
 ```
 
-Text payloads are strict UTF-8, bounded to 32,768 characters and 128 KiB encoded size. Delivery ACKs have no body.
+Text payloads are strict UTF-8, bounded to 32,768 characters and 128 KiB encoded size. Delivery and read ACKs have no body.
 
 `DYRM` is expected to travel **inside** the authenticated encrypted application session (`DYSE`). A decoded frame is still checked against the authenticated session identities:
 
@@ -188,6 +192,35 @@ A valid ACK:
 
 A repeated valid ACK is idempotent. An ACK from a different peer cannot clear the item.
 
+## Read receipt semantics
+
+Read receipts are explicit and peer scoped. `PeerReadReceiptService` marks an already-delivered incoming message read only after the caller's UX policy decides that the user has actually observed it, then creates a `PeerReadAckFrame` for the original sender.
+
+The durable stores enforce exact scope in both directions:
+
+```text
+incoming mark-read:
+reader == local recipient
+sender == authenticated remote sender
+
+outgoing read ACK:
+stored sender == local sender
+reader == authenticated remote recipient
+```
+
+A valid read ACK transitions the outgoing message to `Read`, records `ReadAt`, preserves/establishes delivery time, and removes any still-present outbox row. That last rule allows a read ACK to safely supersede a lost delivery ACK. Wrong-peer read acknowledgements cannot change the message.
+
+Read receipt generation is transport-neutral; the shipping app still needs the proven production frame sender/lifecycle scheduler before read ACK bytes can be delivered over the real peer connection.
+
+## Presentation ordering under clock skew
+
+A remote peer controls the `CreatedAt` carried in its text frame, so that timestamp cannot safely define local chat order. `SqliteLocalStore.GetMessagesAsync` therefore uses a local presentation timestamp:
+
+- outgoing messages: local `created_utc`;
+- incoming messages: local receive time stored in `delivered_utc`, falling back to `created_utc` only for legacy/incomplete rows.
+
+Both the limited "latest N" selection and the final ascending presentation order use this rule. A remote device whose clock is days behind or ahead therefore cannot push a newly received message outside the current conversation window merely through clock skew. The original remote `CreatedAt` is still retained on the message for protocol identity/audit semantics.
+
 ## Lost-ACK proof
 
 `ReliableMessagingEndToEndTests` uses two separate encrypted SQLite databases to model Alice and Bob.
@@ -213,6 +246,8 @@ Alice removes M from outbox
 
 The test uses one shared simulated clock for sender retry scheduling and both receiver timestamp validators, matching the single-time-domain behavior expected on actual devices while keeping the scenario deterministic.
 
+`ReadReceiptTests` additionally covers durable explicit read state, peer-scoped read ACK processing, wrong-peer rejection, and a read ACK superseding a lost delivery ACK. `MessagePresentationOrderingTests` covers a remote clock skewed far into the past while ensuring the latest-message limit still follows local receive order.
+
 ## Concurrency behavior
 
 An ACK can race a sender attempt. The queue update is written defensively:
@@ -221,7 +256,7 @@ An ACK can race a sender attempt. The queue update is written defensively:
 - a later attempt update that finds no outbox row returns `false` rather than recreating it;
 - `OutboxDeliveryWorker` reports this as `ChangedConcurrently`.
 
-The worker never resurrects a message already acknowledged as delivered.
+The worker never resurrects a message already acknowledged as delivered/read.
 
 ## Current boundary
 
@@ -230,26 +265,26 @@ The reliability algorithm is implemented and covered independently of the concre
 Implemented:
 
 - transactional store-before-send;
-- versioned text/ACK wire format;
+- versioned text/delivery-ACK/read-ACK wire format;
 - authenticated peer scope validation;
 - idempotent durable receive;
 - duplicate collision rejection;
-- duplicate ACK re-emission;
+- duplicate delivery-ACK re-emission;
 - exact-peer delivery ACK processing;
+- explicit durable peer-scoped read receipts;
 - due outbox selection;
 - deterministic resend of the same logical message;
 - bounded ACK/failure retry scheduling;
 - privacy-safe persisted failure codes;
-- lost-first-ACK end-to-end integration test.
+- lost-first-ACK end-to-end integration test;
+- clock-skew-safe local presentation ordering and latest-message selection.
 
 Still intentionally open:
 
 - production `IPeerApplicationFrameSender` implementation;
 - long-running mobile delivery scheduler / lifecycle integration;
 - reconnect/session management around the worker;
-- read receipts;
 - multi-message synchronization after long offline periods;
-- clock-skew-aware presentation ordering;
 - physical-device proof over the experimental authenticated WebRTC path.
 
 The shipping app must not start the outbox worker against FsWebRTC until the physical Android transport matrix succeeds and the current FsWebRTC Android 16 KB native-library blocker is resolved or the transport dependency changes.
