@@ -6,11 +6,12 @@ namespace Dyract.Server.Services;
 public static class RedisConnectionPolicy
 {
     public const string NetworkIsolationConfirmationKey = "Dyract:Redis:NetworkIsolationConfirmed";
+    public const string NetworkIsolationConfirmationEnvironmentVariable = "Dyract__Redis__NetworkIsolationConfirmed";
 
     public static void Validate(
         ConfigurationOptions options,
         string environmentName,
-        bool networkIsolationConfirmed = false)
+        bool? networkIsolationConfirmed = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(environmentName);
@@ -38,7 +39,12 @@ public static class RedisConnectionPolicy
                 "Production Redis must not enable administrative commands for the Dyract directory connection.");
         }
 
-        if (!networkIsolationConfirmed)
+        var isolationConfirmed = networkIsolationConfirmed ?? string.Equals(
+            Environment.GetEnvironmentVariable(NetworkIsolationConfirmationEnvironmentVariable),
+            bool.TrueString,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!isolationConfirmed)
         {
             throw new InvalidOperationException(
                 $"Production Redis network isolation must be explicitly confirmed with {NetworkIsolationConfirmationKey}=true after private-network/firewall policy has been applied.");
