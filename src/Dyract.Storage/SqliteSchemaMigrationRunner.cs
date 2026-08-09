@@ -9,13 +9,43 @@ namespace Dyract.Storage;
 /// </summary>
 public sealed class SqliteSchemaMigrationRunner
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     private static readonly MigrationDefinition[] Migrations =
     [
         new(1, "baseline-v1", Sql: null),
         new(2, "track-issued-contact-capability", """
             ALTER TABLE contacts ADD COLUMN granted_capability BLOB NULL;
+            """),
+        new(3, "durable-attachment-receive-state", """
+            CREATE TABLE attachment_receives (
+                sender_peer_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL,
+                file_name BLOB NOT NULL,
+                content_type BLOB NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                chunk_size INTEGER NOT NULL,
+                sha256 BLOB NOT NULL,
+                created_utc INTEGER NOT NULL,
+                updated_utc INTEGER NOT NULL,
+                PRIMARY KEY(sender_peer_id, attachment_id)
+            );
+
+            CREATE INDEX ix_attachment_receives_updated
+                ON attachment_receives(updated_utc, sender_peer_id, attachment_id);
+
+            CREATE TABLE attachment_receive_chunks (
+                sender_peer_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                payload BLOB NOT NULL,
+                payload_length INTEGER NOT NULL,
+                received_utc INTEGER NOT NULL,
+                PRIMARY KEY(sender_peer_id, attachment_id, chunk_index),
+                FOREIGN KEY(sender_peer_id, attachment_id)
+                    REFERENCES attachment_receives(sender_peer_id, attachment_id)
+                    ON DELETE CASCADE
+            );
             """)
     ];
 
