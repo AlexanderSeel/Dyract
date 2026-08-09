@@ -9,7 +9,7 @@ namespace Dyract.Storage;
 /// </summary>
 public sealed class SqliteSchemaMigrationRunner
 {
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     private static readonly MigrationDefinition[] Migrations =
     [
@@ -46,6 +46,18 @@ public sealed class SqliteSchemaMigrationRunner
                     REFERENCES attachment_receives(sender_peer_id, attachment_id)
                     ON DELETE CASCADE
             );
+            """),
+        new(4, "bound-attachment-receive-reservations", """
+            CREATE TRIGGER attachment_receives_quota_before_insert
+            BEFORE INSERT ON attachment_receives
+            WHEN
+                (SELECT COUNT(*) FROM attachment_receives) >= 16
+                OR (SELECT COUNT(*) FROM attachment_receives WHERE sender_peer_id = NEW.sender_peer_id) >= 4
+                OR COALESCE((SELECT SUM(size_bytes) FROM attachment_receives), 0) + NEW.size_bytes > 536870912
+                OR COALESCE((SELECT SUM(size_bytes) FROM attachment_receives WHERE sender_peer_id = NEW.sender_peer_id), 0) + NEW.size_bytes > 209715200
+            BEGIN
+                SELECT RAISE(ABORT, 'attachment_receive_quota');
+            END;
             """)
     ];
 
