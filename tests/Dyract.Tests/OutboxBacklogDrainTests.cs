@@ -26,7 +26,7 @@ public sealed class OutboxBacklogDrainTests
         Assert.Equal(new OutboxBacklogDrainResult(3, 5, 5, 0, 0, false), result);
         Assert.Equal(5, sender.CallCount);
         Assert.Empty(queue.Pending);
-        Assert.Equal([2, 2, 2], queue.RequestedLimits);
+        Assert.Equal(new[] { 2, 2, 2 }, queue.RequestedLimits);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public sealed class OutboxBacklogDrainTests
         Assert.Equal(new OutboxBacklogDrainResult(2, 3, 3, 0, 0, true), result);
         Assert.Equal(3, sender.CallCount);
         Assert.Equal(2, queue.Pending.Count);
-        Assert.Equal([2, 1], queue.RequestedLimits);
+        Assert.Equal(new[] { 2, 1 }, queue.RequestedLimits);
     }
 
     private static IReadOnlyList<DueOutboxMessage> CreateItems(
