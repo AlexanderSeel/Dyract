@@ -1,3 +1,4 @@
+using Dyract.App.Attachments;
 using Dyract.App.Directory;
 using Dyract.Storage;
 using Microsoft.Maui.Storage;
@@ -74,6 +75,12 @@ public sealed class InstallationResetService : IInstallationResetService
         if (File.Exists(databasePath))
         {
             await SqliteLocalResetter.ResetUserDataAsync(databasePath, cancellationToken);
+        }
+
+        var attachmentDirectory = AppOwnedAttachmentStorage.RootDirectoryPath;
+        if (Directory.Exists(attachmentDirectory))
+        {
+            Directory.Delete(attachmentDirectory, recursive: true);
         }
 
         _directorySettings.Clear();
