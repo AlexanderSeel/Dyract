@@ -53,6 +53,7 @@ docs/
   reliable-messaging.md
   signaling.md
   attachments.md
+  attachment-sender-lifecycle.md
   transport-spike.md
   local-storage-migrations.md
   server-database-migrations.md
@@ -61,6 +62,7 @@ docs/
   redis-transient-state.md
   rate-limiting.md
   observability.md
+  secret-management.md
   threat-model.md
   protocol-fuzzing.md
   device-compromise-recovery.md
@@ -92,18 +94,19 @@ Implemented:
 - [x] Redis 8 integration CI.
 - [x] layered process-local + Redis shared application request limiting.
 - [x] production Redis TLS/authentication/non-admin/network-isolation startup policy.
+- [x] production PostgreSQL/Redis connection-secret source enforcement.
 - [x] privacy-aware structured application logs/metrics and retention policy.
 - [x] server metadata backup/restore policy.
 - [x] ASP.NET integration tests.
 
 Remaining:
 
-- [ ] production secret management.
+- [ ] production secret-manager deployment, access-control/rotation and revocation validation.
 - [ ] production edge/network DDoS and abuse-control deployment/validation.
 - [ ] production observability backend/access/retention configuration and validation.
 - [ ] production PostgreSQL backup/PITR/retention configuration and restore-drill validation.
 
-See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md` and `docs/observability.md`.
+See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md`, `docs/observability.md` and `docs/secret-management.md`.
 
 ## 5. Phase 1 — contact authorization, presence and signaling
 
@@ -416,7 +419,9 @@ Implemented:
 - [x] completed attachment-ID reuse with changed canonical manifest content fails closed.
 - [x] receiver cleanup expires inactive partial receives after 14 days and completion receipts after 7 days.
 - [x] completion receipts bounded to 64 per sender / 256 globally.
-- [x] attachment receive/send persistence registered in shipping DI without connecting an unproven transport.
+- [x] exact-scope explicit sender cancellation cascades deletion of its encrypted snapshot/chunks.
+- [x] sender lifetime policy has no silent time-based expiry: state remains until `DYAC`, explicit cancellation or destructive reset.
+- [x] attachment receive/send/maintenance persistence registered in shipping DI without connecting an unproven transport.
 - [x] destructive identity reset clears partial, completed-receipt and sender attachment state while remaining compatible with older schemas.
 
 Remaining:
@@ -425,11 +430,11 @@ Remaining:
 - [ ] platform-specific promotion/generated-destination behavior after verified staging succeeds.
 - [ ] mobile free-space checks in addition to database reservation quotas.
 - [ ] mobile file picker/provider permission and lifecycle handling.
-- [ ] explicit user-visible sender cancel/abandoned-outbox expiry policy.
+- [ ] user-visible sender pending/retry/cancel UX; any future time expiry must be explicit rather than silent.
 - [ ] thumbnails with safe untrusted-content handling.
-- [ ] Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion and reset validation.
+- [ ] Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion, cancel and reset validation.
 
-See `docs/attachments.md`.
+See `docs/attachments.md` and `docs/attachment-sender-lifecycle.md`.
 
 ## 12. Phase 8 — production infrastructure
 
@@ -449,16 +454,17 @@ See `docs/attachments.md`.
 - [x] Redis shared fixed-window application rate limiting across directory instances.
 - [x] shared limiter client-partition hashing and middleware routing tests.
 - [x] production Redis TLS/authentication/non-admin/network-isolation policy and startup enforcement.
+- [x] production PostgreSQL/Redis credentials constrained to deployment secret-source settings.
 - [x] privacy-aware application logs/metrics + repository retention policy.
 - [x] server metadata backup/restore policy.
 - [ ] production edge/network DDoS/WAF/global abuse-control deployment and validation.
 - [ ] production STUN/TURN deployment decision.
 - [ ] APNs/FCM integration.
-- [ ] secret/key management.
+- [ ] production secret-manager/access/rotation deployment validation and future TURN/push/backup secret extensions.
 - [ ] production observability backend/access/retention deployment validation.
 - [ ] production PostgreSQL backup/PITR/retention deployment and restore-drill validation.
 
-See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md` and `docs/observability.md`.
+See `docs/server-database-migrations.md`, `docs/server-backup-restore.md`, `docs/redis-transient-state.md`, `docs/rate-limiting.md`, `docs/observability.md` and `docs/secret-management.md`.
 
 ## 13. Phase 9 — security hardening
 
@@ -503,5 +509,5 @@ Transport-dependent product work remains gated by physical evidence.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
-10. Configure/validate production secret management, observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
-11. Continue attachment platform destination/free-space handling and explicit sender cancellation/expiry semantics without connecting it to an unproven production transport.
+10. Deploy/validate the production secret manager plus observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
+11. Continue attachment platform destination/free-space handling and mobile sender pending/retry/cancel UX without connecting it to an unproven production transport.
