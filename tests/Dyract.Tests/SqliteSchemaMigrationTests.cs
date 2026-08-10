@@ -44,6 +44,11 @@ public sealed class SqliteSchemaMigrationTests
                 {
                     Assert.Equal(5, migration.Version);
                     Assert.Equal("durable-attachment-send-outbox", migration.Name);
+                },
+                migration =>
+                {
+                    Assert.Equal(6, migration.Version);
+                    Assert.Equal("durable-attachment-completion-receipts", migration.Name);
                 });
 
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
@@ -53,6 +58,7 @@ public sealed class SqliteSchemaMigrationTests
             Assert.True(await TableExistsAsync(databasePath, "attachment_sends"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_send_chunks"));
             Assert.True(await TriggerExistsAsync(databasePath, "attachment_sends_quota_before_insert"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receive_completions"));
         }
         finally
         {
@@ -92,9 +98,10 @@ public sealed class SqliteSchemaMigrationTests
             Assert.True(await TableExistsAsync(databasePath, "attachment_sends"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_send_chunks"));
             Assert.True(await TriggerExistsAsync(databasePath, "attachment_sends_quota_before_insert"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_receive_completions"));
 
             var migrations = await ReadMigrationsAsync(databasePath);
-            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, migrations.Select(value => value.Version).ToArray());
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6 }, migrations.Select(value => value.Version).ToArray());
         }
         finally
         {
