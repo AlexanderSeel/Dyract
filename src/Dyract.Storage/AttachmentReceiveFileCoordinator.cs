@@ -64,10 +64,10 @@ public sealed class AttachmentReceiveFileCoordinator
             ?? throw new InvalidDataException("Attachment receive state does not exist.");
 
         var availableBytes = await _storageCapacity.GetAvailableBytesAsync(cancellationToken);
-        if (availableBytes is >= 0 && availableBytes.Value < manifest.SizeBytes)
+        if (availableBytes is long available && available >= 0 && available < manifest.SizeBytes)
         {
             throw new IOException(
-                $"Insufficient local storage for verified attachment staging. Required {manifest.SizeBytes} bytes; available {availableBytes.Value} bytes.");
+                $"Insufficient local storage for verified attachment staging. Required {manifest.SizeBytes} bytes; available {available} bytes.");
         }
 
         await using var destination = await _destinationFactory.CreateAsync(manifest, cancellationToken);
