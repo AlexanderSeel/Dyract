@@ -46,12 +46,12 @@ public sealed class SqliteAttachmentSendStoreTests
             Assert.True(due.SendManifest);
             Assert.False(due.CompletionProbe);
             Assert.Equal(manifest, due.Manifest);
-            Assert.Equal([0, 1, 2], due.Chunks.Select(chunk => chunk.ChunkIndex).ToArray());
+            Assert.Equal(new[] { 0, 1, 2 }, due.Chunks.Select(chunk => chunk.ChunkIndex).ToArray());
 
             var missingMiddle = new AttachmentResumeApplicationFrame(
                 AttachmentProtocol.CurrentVersion,
                 manifest.AttachmentId,
-                [new AttachmentChunkRange(1, 1)]);
+                new[] { new AttachmentChunkRange(1, 1) });
             Assert.True(await restarted.ApplyResumeAsync(
                 sender.PeerId.Value,
                 recipient.PeerId.Value,
@@ -69,7 +69,7 @@ public sealed class SqliteAttachmentSendStoreTests
             var nothingMissing = new AttachmentResumeApplicationFrame(
                 AttachmentProtocol.CurrentVersion,
                 manifest.AttachmentId,
-                []);
+                Array.Empty<AttachmentChunkRange>());
             Assert.True(await restarted.ApplyResumeAsync(
                 sender.PeerId.Value,
                 recipient.PeerId.Value,
