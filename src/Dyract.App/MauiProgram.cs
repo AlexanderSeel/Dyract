@@ -47,6 +47,18 @@ public static class MauiProgram
             var localStore = services.GetRequiredService<ILocalStore>();
             return new SqliteIssuedCapabilityStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
+        builder.Services.AddSingleton<SqliteAttachmentReceiveStore>(services =>
+        {
+            var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
+            var localStore = services.GetRequiredService<ILocalStore>();
+            return new SqliteAttachmentReceiveStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
+        });
+        builder.Services.AddSingleton<SqliteAttachmentSendStore>(services =>
+        {
+            var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
+            var localStore = services.GetRequiredService<ILocalStore>();
+            return new SqliteAttachmentSendStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
+        });
         builder.Services.AddSingleton<IIncomingMessageStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
         builder.Services.AddSingleton<IOutgoingDeliveryStore>(services =>
@@ -59,6 +71,8 @@ public static class MauiProgram
             services.GetRequiredService<SqliteOutboxDeliveryQueue>());
         builder.Services.AddSingleton<IIssuedCapabilityStore>(services =>
             services.GetRequiredService<SqliteIssuedCapabilityStore>());
+        builder.Services.AddSingleton<IAttachmentSendStore>(services =>
+            services.GetRequiredService<SqliteAttachmentSendStore>());
         builder.Services.AddSingleton<PeerMessageProcessor>();
         builder.Services.AddSingleton<PeerReadReceiptService>();
         builder.Services.AddSingleton<IDirectorySettingsStore, DirectorySettingsStore>();
