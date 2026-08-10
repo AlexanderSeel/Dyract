@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using System.Text;
 using Dyract.Core.Identity;
 using Dyract.Crypto.Identity;
 using Dyract.Crypto.Session;
@@ -30,7 +29,26 @@ public static class Program
             return;
         }
 
+        if (args is ["--self-test"])
+        {
+            RunSelfTest();
+            return;
+        }
+
         Fuzzer.LibFuzzer.Run(FuzzOne);
+    }
+
+    private static void RunSelfTest()
+    {
+        FuzzOne(new byte[] { HandshakeTarget, 0 });
+        FuzzOne(new byte[] { HandshakeTarget, 1 });
+        FuzzOne(new byte[] { HandshakeTarget, 0, 0, 0, 1 });
+        FuzzOne(new byte[] { HandshakeTarget, 1, 0, 0, 1 });
+        FuzzOne(new byte[] { EncryptedSessionTarget, 0 });
+        FuzzOne(new byte[] { EncryptedSessionTarget, 0, 0, 0, 1 });
+        FuzzOne(new byte[] { EncryptedSessionTarget, 1 });
+        FuzzOne(new byte[] { EncryptedSessionTarget, 2 });
+        FuzzOne(new byte[] { EncryptedSessionTarget, 3 });
     }
 
     private static void FuzzOne(ReadOnlySpan<byte> input)
@@ -294,9 +312,13 @@ public static class Program
             return Array.Empty<byte>();
         }
 
-        var length = instructions.IsEmpty
-            ? original.Length - 1
-            : BinaryPrimitives.ReadUInt16BigEndian(PadToUInt16(instructions)) % original.Length;
+        var selector = instructions.Length switch
+        {
+            0 => original.Length - 1,
+            1 => instructions[0],
+            _ => BinaryPrimitives.ReadUInt16BigEndian(instructions[..2])
+        };
+        var length = selector % original.Length;
         return original[..length].ToArray();
     }
 
@@ -313,16 +335,6 @@ public static class Program
         }
 
         return extended;
-    }
-
-    private static ReadOnlySpan<byte> PadToUInt16(ReadOnlySpan<byte> input)
-    {
-        if (input.Length >= 2)
-        {
-            return input[..2];
-        }
-
-        return new byte[] { 0, input[0] };
     }
 
     private static void EnsurePlaintext(ReadOnlySpan<byte> expected, byte[] actual, string message)
