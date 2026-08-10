@@ -49,7 +49,7 @@ tests/
   Dyract.Tests/
 
 fuzz/
-  Dyract.Protocol.Fuzz/     SharpFuzz/libFuzzer frame-parser harness + seed generator
+  Dyract.Protocol.Fuzz/     SharpFuzz/libFuzzer parser + authenticated-session state harness
 
 docs/
   session-security.md
@@ -336,12 +336,14 @@ Current Android harness builds expose `XA0141`: the bundled `libjingle_peerconne
 - [x] protocol version/size bounds.
 - [x] adversarial tests for tampering/wrong identity/wrong session/replay.
 - [x] deterministic repository fuzz/property tests for handshake, `DYSE` and `DYRM` boundaries.
+- [x] coverage-guided stateful `DYSH`/`DYSE` targets using internally generated valid sessions and bounded mutation/state instructions.
+- [x] bounded CI fuzz-harness smoke verifies valid/mutated handshake and encrypted-session sequence invariants without claiming a sustained campaign.
 - [x] Android transport harness performs handshake before probes.
 
 Remaining:
 
 - [ ] independent cryptographic review.
-- [ ] coverage-guided stateful `DYSH`/`DYSE` session-sequence fuzz target and external campaign evidence.
+- [ ] sustained/external coverage-guided campaign evidence for `DYSH`/`DYSE` and retained minimized findings/regressions.
 - [ ] decide reconnect-level forward secrecy vs reviewed Noise/Double-Ratchet design.
 
 See `docs/session-security.md` and `docs/protocol-fuzzing.md`.
@@ -483,8 +485,8 @@ Before public production use:
 - [x] repository endpoint-enumeration/capability-abuse integration tests.
 - [x] stolen-device/recovery analysis.
 - [x] SBOM/dependency automation.
-- [x] coverage-guided SharpFuzz/libFuzzer harness for `DYRM`/`DYRA`/`DYAC` with deterministic seed generation and canonical round-trip invariants.
-- [ ] run/schedule external fuzz campaigns, retain minimized regression corpus/findings and extend coverage-guided fuzzing to stateful `DYSH`/`DYSE` plus proven production transport sequences.
+- [x] coverage-guided SharpFuzz/libFuzzer harness for `DYRM`/`DYRA`/`DYAC` plus stateful `DYSH`/`DYSE`, with deterministic seed/instruction generation and bounded CI smoke invariants.
+- [ ] run/schedule external fuzz campaigns, record versions/duration, retain minimized regression corpus/findings and extend stateful coverage to the proven production transport lifecycle.
 - [ ] independent cryptographic review.
 - [ ] mobile secure-storage review.
 
