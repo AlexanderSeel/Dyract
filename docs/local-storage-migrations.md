@@ -5,7 +5,7 @@ Dyract treats the local database as device-owned user data. Schema upgrades must
 ## Current version
 
 ```text
-SqliteSchemaMigrationRunner.CurrentVersion = 5
+SqliteSchemaMigrationRunner.CurrentVersion = 6
 ```
 
 The historical database bootstrap still records:
@@ -31,6 +31,7 @@ Current migrations:
 3  durable-attachment-receive-state
 4  bound-attachment-receive-reservations
 5  durable-attachment-send-outbox
+6  durable-attachment-completion-receipts
 ```
 
 ### Migration 1 — baseline-v1
@@ -108,6 +109,40 @@ maximum declared active bytes per recipient: 200 MiB
 
 Resume frames update durable per-chunk acknowledgement bits. The sender snapshot is **not** removed merely because the receiver reports no missing chunks; it remains until a manifest-bound final completion acknowledgement is accepted.
 
+### Migration 6 — durable-attachment-completion-receipts
+
+Migration 6 adds a small receiver-side tombstone table:
+
+```text
+attachment_receive_completions
+```
+
+A receipt is scoped by:
+
+```text
+(sender PeerId, attachment ID)
+```
+
+It intentionally does **not** retain attachment bytes, filename or MIME metadata. It stores only:
+
+- an AES-256-GCM-protected SHA-256 fingerprint of the canonical accepted manifest frame;
+- the AES-256-GCM-protected final attachment SHA-256 used by `DYAC`;
+- completion and expiry timestamps.
+
+This state exists so a sender that lost the final `DYAC` can replay its exact manifest and receive the same completion acknowledgement after process/device restart instead of causing Dyract to create a new partial transfer.
+
+A replay with the same attachment ID but different canonical manifest content fails closed as an ID collision.
+
+Completion receipts are deliberately bounded and short lived:
+
+```text
+retention:                    7 days
+maximum receipts globally:    256
+maximum receipts per sender:   64
+```
+
+The newest receipts are retained when the count bound is exceeded. Active incomplete receives use a separate 14-day inactivity cleanup window.
+
 ## Initialization
 
 The shipping MAUI app resolves `ILocalStore` to `MigratingLocalStore`.
@@ -145,7 +180,7 @@ A legacy v1 database therefore upgrades in-place while preserving existing conta
 9. Destructive migrations require an explicit backup/recovery design and separate review.
 10. The migration runner does not weaken the local encryption boundary; it changes schema metadata/structure only.
 
-## Adding migration v6+
+## Adding migration v7+
 
 When the next real schema change is needed:
 
@@ -164,10 +199,11 @@ Do **not** advance the schema for bookkeeping alone.
 
 The suite verifies:
 
-- a fresh migrating database records migrations 1 through 5 exactly once;
+- a fresh migrating database records migrations 1 through 6 exactly once;
 - migration 2 creates `contacts.granted_capability`;
 - migrations 3 and 4 create attachment receive tables and the receive quota trigger;
 - migration 5 creates attachment sender/outbox tables and its quota trigger;
+- migration 6 creates bounded durable completion-receipt state;
 - an existing historical v1 database upgrades to the current version without losing encrypted contact data;
 - a database from a newer Dyract build is rejected;
 - malformed legacy schema metadata is rejected;
@@ -182,7 +218,12 @@ The suite verifies:
 - progress resumes acknowledge already-received chunks while retaining missing chunks for retransmission;
 - final completion is recipient-scoped and removes sender state only when attachment ID and SHA-256 match;
 - the per-recipient active send limit is enforced at the database boundary;
-- destructive identity reset clears both partial receive and queued send attachment state while still supporting databases created before attachment tables existed.
+- verified receiver staging reconstructs the exact bytes only after all chunks are durable;
+- completed receiver state survives restart and re-emits the same final `DYAC` on an exact manifest replay;
+- completed attachment-ID reuse with changed manifest content fails closed;
+- stale partial receives and expired completion receipts are cleaned independently;
+- completion receipts are bounded per sender;
+- destructive identity reset clears partial receive, completed receipt and queued send attachment state while still supporting databases created before attachment tables existed.
 
 ## Recovery boundary
 
