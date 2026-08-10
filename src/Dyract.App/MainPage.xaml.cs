@@ -3,6 +3,7 @@ using Dyract.App.Security;
 using Dyract.Client;
 using Dyract.Protocol;
 using Dyract.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 
 namespace Dyract.App;
@@ -14,6 +15,7 @@ public partial class MainPage : ContentPage
     private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
     private readonly IInstallationResetService _installationResetService;
+    private readonly IServiceProvider _services;
     private string? _peerId;
     private string? _fingerprint;
     private string? _contactInvitation;
@@ -27,7 +29,8 @@ public partial class MainPage : ContentPage
         ILocalStore localStore,
         IIssuedCapabilityStore issuedCapabilityStore,
         IDirectoryService directoryService,
-        IInstallationResetService installationResetService)
+        IInstallationResetService installationResetService,
+        IServiceProvider services)
     {
         InitializeComponent();
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
@@ -35,6 +38,7 @@ public partial class MainPage : ContentPage
         _issuedCapabilityStore = issuedCapabilityStore ?? throw new ArgumentNullException(nameof(issuedCapabilityStore));
         _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
         _installationResetService = installationResetService ?? throw new ArgumentNullException(nameof(installationResetService));
+        _services = services ?? throw new ArgumentNullException(nameof(services));
     }
 
     protected override async void OnAppearing()
@@ -63,7 +67,6 @@ public partial class MainPage : ContentPage
             CopyPeerIdButton.IsEnabled = false;
             CopyInviteButton.IsEnabled = false;
             ShowInviteQrButton.IsEnabled = false;
-            // Keep recovery reachable when an initialized SecureStorage identity cannot be read.
             SecuritySettingsButton.IsEnabled = true;
             ScanQrButton.IsEnabled = false;
             AddContactButton.IsEnabled = false;
@@ -405,12 +408,8 @@ public partial class MainPage : ContentPage
         }
 
         ContactsView.SelectedItem = null;
-        await Navigation.PushAsync(new ConversationPage(
-            _localStore,
-            _identityVault,
-            _issuedCapabilityStore,
-            _directoryService,
-            contact));
+        var page = ActivatorUtilities.CreateInstance<ConversationPage>(_services, contact);
+        await Navigation.PushAsync(page);
     }
 
     private static string ShortPeerId(string peerId)
