@@ -59,7 +59,17 @@ AuthenticatedSessionResponder.Accept(...)
 - a response generated for one SessionId cannot complete an initiator for another SessionId;
 - role/identity/session binding remains enforced by normal adversarial handshake tests.
 
-A coverage-guided stateful `DYSH` target is still open because it needs stable identity/session setup and must distinguish expected authentication failure from true state-machine defects.
+The coverage-guided harness now adds a stateful `DYSH` target. Instead of treating arbitrary bytes as a meaningful authenticated handshake, it constructs valid synthetic initiator/responder state internally and applies a bounded mutation instruction stream to either the signed hello or signed response.
+
+Invariants:
+
+- an unchanged internally generated hello/response authenticates normally;
+- a changed signed hello must not be accepted by the responder;
+- a changed signed response must not complete the initiator;
+- only the handshake API's documented `CryptographicException` / `ArgumentException` rejection contract is treated as expected;
+- unexpected exceptions or acceptance of changed signed packets remain fuzz findings.
+
+`AuthenticatedSessionInitiator.Complete` intentionally consumes/disposes initiator state after a completion attempt. The response fuzz target therefore creates fresh initiator state for each input rather than incorrectly asserting that the same initiator can be retried after a rejected completion.
 
 ## Reliable-message frames (`DYRM`)
 
@@ -82,7 +92,7 @@ Repository properties include:
 
 ## Attachment frames (`DYRA` / `DYAC`)
 
-Coverage-guided parser targets now include:
+Coverage-guided parser targets include:
 
 ```text
 AttachmentApplicationFrameProtocol.Decode(...)               DYRA
@@ -108,9 +118,18 @@ Current deterministic properties:
 - a frame from Session A is rejected by Session B;
 - the same frame is accepted by the correct session once and then rejected as replay.
 
-These properties extend the existing example tests for header mutation, wrong identity/session, replay, out-of-order data and tampered ciphertext/tag.
+The coverage-guided harness now constructs fresh sender/receiver ciphers from synthetic authenticated session keys for every fuzz input. It generates two valid sequential frames and explores:
 
-A coverage-guided stateful `DYSE` target remains open; arbitrary ciphertext alone is low-value unless the harness can generate and mutate valid authenticated session sequences while preserving expected receive-state invariants.
+```text
+bounded mutation of frame 0
+frame 1 delivered before frame 0
+truncated frame 0
+extended frame 0
+```
+
+A candidate that differs from valid frame 0 must be rejected. Immediately afterward the original frame 0 and frame 1 must still decrypt successfully in order, proving the rejected candidate did not consume receive sequence state. After both valid frames are consumed, replaying frame 0 must fail.
+
+The synthetic identities/session keys exist only inside the fuzz process. The corpus stores mutation/state instructions rather than generated private keys, nonces or ciphertext and never uses real application/user data.
 
 ## HTTP/API robustness
 
@@ -163,38 +182,46 @@ Do not replace these with nondeterministic seeds in the required CI suite. A ran
 
 ## Coverage-guided SharpFuzz/libFuzzer harness
 
-The repository now contains:
+The repository contains:
 
 ```text
 fuzz/Dyract.Protocol.Fuzz/
 ```
 
-The .NET 10 project pins SharpFuzz 2.3.0 and is included in `Dyract.slnx`, so ordinary core CI restores/builds the fuzz target even though normal CI does not run an unbounded fuzz campaign.
+The .NET 10 project pins SharpFuzz 2.3.0 and is included in `Dyract.slnx`, so ordinary core CI restores/builds the fuzz target.
 
-The first fuzz-input byte selects a parser domain:
+The first fuzz-input byte selects a domain:
 
 ```text
-0 -> DYRM
-1 -> DYRA
-2 -> DYAC
+0 -> DYRM parser
+1 -> DYRA parser
+2 -> DYAC parser
+3 -> DYSH stateful handshake mutations
+4 -> DYSE stateful encrypted-session sequences
 ```
 
-The remaining bytes are passed directly to the production parser. Accepted frames must re-encode byte-for-byte identically. This preserves the same canonical-wire invariant as deterministic property tests while allowing coverage-guided mutation to explore parser branches.
+For parser targets, remaining bytes go directly to the production decoder. For `DYSH`/`DYSE`, remaining bytes are bounded mutation/state instructions applied to internally generated valid cryptographic state.
 
-A deterministic seed-corpus generator produces valid text, attachment manifest/chunk/resume and final completion frames into the ignored `artifacts/` tree before a campaign. Seed binaries therefore do not need to be checked in merely to bootstrap the fuzzer.
+A deterministic seed-corpus generator produces valid parser frames and state instructions into the ignored `artifacts/` tree before a campaign. Seed binaries therefore do not need to contain keys/nonces or be checked in merely to bootstrap the fuzzer.
+
+The harness also exposes:
+
+```text
+--self-test
+```
+
+Normal core CI runs this bounded mode after the Release build. It exercises valid/mutated `DYSH` hello/response paths plus baseline, mutated, out-of-order, truncated and extended `DYSE` paths. This is a deterministic harness smoke test, **not** a coverage-guided campaign and not evidence of independent fuzzing.
 
 The campaign and finding workflow is documented in `fuzz/Dyract.Protocol.Fuzz/README.md`:
 
 1. record repository commit plus SharpFuzz/native driver versions;
-2. run against generated valid seeds with bounded maximum input length;
+2. run against generated seeds with bounded input length/work;
 3. minimize any crashing input;
-4. fix the production boundary rather than broadening the harness exception filter;
-5. retain the minimized binary input or an equivalent deterministic regression test;
+4. fix the production parser/session boundary rather than broadening the harness exception filter;
+5. retain the minimized input or an equivalent deterministic regression test;
 6. never use real PeerIds, addresses, keys, message content or other user data as fuzz corpus material.
 
-Repository support for this harness is complete; actual long-running/scheduled campaign evidence remains a separate release/security task.
-
-## Size/allocation policy
+## Size/allocation/work policy
 
 Preferred validation order for untrusted data:
 
@@ -212,9 +239,11 @@ identity / signature / authenticated-state validation
 
 This matters because a parser that eventually rejects a 100 MiB attacker input can still be an availability vulnerability if it allocates/decodes the entire representation first.
 
+The stateful session targets separately cap mutation count/work. Oversized fuzz inputs do not cause an unbounded number of ECDSA/ECDH/AES operations per iteration.
+
 ## Current repository status
 
-The deterministic repository fuzz/property PLAN item is considered implemented because current CI exercises:
+The deterministic repository fuzz/property PLAN item is implemented because current CI exercises:
 
 - QR/import malformed input and pre-decode bounds;
 - pre-authentication handshake garbage/mutations;
@@ -224,19 +253,17 @@ The deterministic repository fuzz/property PLAN item is considered implemented b
 - malformed HTTP/API request boundaries;
 - semantic directory enumeration/capability-abuse regression cases.
 
-The repository-side coverage-guided harness is also implemented for `DYRM`, `DYRA` and `DYAC`, including deterministic seed generation and canonical round-trip invariants.
+The repository-side coverage-guided harness is implemented for `DYRM`, `DYRA`, `DYAC`, stateful `DYSH` and stateful `DYSE`, with deterministic seed/instruction generation and a bounded CI smoke path.
 
-Neither status means Dyract has undergone an independent fuzzing campaign or security review.
+Neither status means Dyract has undergone an independent or sustained fuzzing campaign.
 
 ## Still open before production
 
 ### External/long-running coverage-guided campaigns
 
-Run and record sustained campaigns against the repository harness, minimize any findings and retain reproducible regression corpus entries or equivalent deterministic tests. A scheduled workflow may be added only when the native fuzzer-driver acquisition/versioning strategy is pinned and reviewable rather than silently downloading an unversioned binary.
+Run and record sustained campaigns against the repository harness, including parser and stateful session targets. Record commit, SharpFuzz/native-driver versions and campaign duration; minimize findings and retain reproducible regression corpus entries or equivalent deterministic tests.
 
-### Stateful authenticated-session fuzzing
-
-Add dedicated coverage-guided `DYSH`/`DYSE` state-machine targets that construct valid sessions and mutate meaningful handshake/encrypted-frame sequences while asserting that rejected inputs do not advance authentication/receive state.
+A scheduled workflow may be added only when the native fuzzer-driver acquisition/versioning strategy is pinned and reviewable rather than silently downloading an unversioned binary.
 
 ### End-to-end production transport state sequences
 
