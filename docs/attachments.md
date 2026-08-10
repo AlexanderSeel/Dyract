@@ -1,56 +1,58 @@
-# Attachment protocol foundation
+# Attachment protocol and mobile file lifecycle
 
 ## Status
 
-Dyract now has a transport-neutral attachment foundation covering:
+Dyract now has a transport-neutral attachment foundation plus the shipping-app local file lifecycle needed around it:
 
-- bounded manifests;
-- fixed-size canonical chunks;
-- versioned `DYRA` manifest/chunk/resume application frames;
-- restart-safe encrypted receive/chunk state;
-- restart-safe encrypted sender snapshots and retry scheduling;
-- peer-scoped progress and final completion acknowledgements;
-- verified receiver reconstruction into caller-owned staging;
-- bounded durable completed-receipt state for lost-final-ACK recovery;
-- idempotent receive duplicates with changed-content collision rejection;
-- bounded send/receive reservations and stale receive cleanup;
-- end-to-end SHA-256 verification.
+- bounded manifests and canonical fixed-size chunks;
+- versioned `DYRA` manifest/chunk/resume frames and manifest-bound `DYAC` completion;
+- encrypted restart-safe receiver chunks and sender snapshots;
+- verified receiver reconstruction before completion;
+- bounded durable completion receipts for lost-final-ACK recovery;
+- send/receive reservation quotas;
+- MAUI picker -> encrypted sender snapshot queueing without persisting a provider path;
+- Android/iOS app-owned generated receive destinations;
+- mobile free-space admission checks when the platform can report capacity;
+- pending/retry/waiting-for-final-confirmation/cancel sender UI;
+- destructive reset of both attachment database state and app-owned staged/final files.
 
-This does **not** yet mean attachments can be sent by the shipping app. Production peer-transport integration, platform-specific final-file promotion/free-space handling, sender-abandonment cleanup, mobile file access/destination UX and thumbnails remain open.
+This still does **not** mean attachments are delivered by the shipping app. The durable attachment outbox is intentionally not connected to the experimental FsWebRTC path. Production peer-transport integration remains gated by physical transport evidence.
 
 ## Privacy boundary
 
-Attachments remain device-owned data. The directory/signaling server must not become an attachment store or offline file mailbox.
+Attachments are device-owned data. The directory/signaling service must not become an attachment store or offline file mailbox.
 
-The intended path is:
+The intended production path is:
 
 ```text
-sender local file
+sender picker/provider
         ↓
-validated immutable sender snapshot
+stream inspection + SHA-256
         ↓
-encrypted durable attachment outbox
+second provider read + exact snapshot verification
         ↓
-DYRA application payload
+encrypted durable attachment sender queue
         ↓
-authenticated encrypted DYSE session
+DYRA inside authenticated encrypted DYSE session
         ↓
 bounded direct/optional-relay chunks
         ↓
 encrypted durable receiver chunk state
         ↓
-caller-owned staging destination
+mobile free-space admission
         ↓
-whole-file SHA-256 verification
+app-owned generated staging file
         ↓
-caller promotes verified staging to final local storage
+whole-file size/chunk/SHA-256 verification
+        ↓
+app-owned final-file promotion
         ↓
 bounded durable completion receipt
         ↓
 manifest-bound DYAC completion ACK
 ```
 
-`DYRA` and `DYAC` are **not encryption layers**. A production peer must carry these payloads only inside the identity-authenticated encrypted `DYSE` session.
+`DYRA` and `DYAC` are protocol frames, not encryption layers. A production transport must carry them only inside the identity-authenticated encrypted `DYSE` session.
 
 No filename, content type, hash, chunk or attachment body belongs in normal directory metadata, push payloads or ordinary telemetry.
 
@@ -81,21 +83,51 @@ maximum content type: 127 characters
 SHA-256:              64 lowercase hex characters
 ```
 
-The fixed chunk size means chunk index and byte offset are deterministic and do not need an attacker-controlled arbitrary range model.
+The fixed chunk size makes chunk index and byte offset deterministic rather than accepting attacker-controlled arbitrary byte ranges.
 
-## Filename handling
+## Filename and content-type handling
 
-A remote filename is metadata for display, not a trusted filesystem path.
+A remote filename is display metadata, never a trusted local path.
 
-The protocol rejects empty/non-canonical names, `.`/`..`, path separators, control characters and common cross-platform reserved path characters. A mobile receiver must generate its own destination path and must not concatenate the remote filename into an application directory path.
+The protocol rejects empty/non-canonical names, `.`/`..`, path separators, control characters and common reserved path characters. The mobile receiver generates the final path from the canonical attachment ID. It may retain only a conservative alphanumeric cosmetic extension from the display filename; an unsafe extension becomes `.bin`.
 
-## Content type handling
+The remote content type is bounded simple MIME metadata. It is advisory only and is not proof that the file is safe to execute, preview or hand to another application.
 
-Protocol v1 accepts a bounded simple MIME type such as `image/jpeg`, `application/pdf` or `application/octet-stream`. Parameters are not part of v1.
+## Sender picker and immutable snapshot
 
-The remote content type is advisory only. It is not proof that the file is safe to execute, render with elevated privileges or hand to another application.
+The shipping MAUI conversation page can select an attachment locally even though network delivery is not connected yet.
 
-## Chunk geometry
+The picker result is treated as a provider handle, not as a guaranteed filesystem path. The app uses `OpenReadAsync()` and never stores `FileResult.FullPath` for retry.
+
+Queueing is deliberately two-pass:
+
+```text
+OpenReadAsync #1
+  ↓
+AttachmentStreamSnapshot.InspectAsync
+  ↓
+bounded byte count + streaming SHA-256 + canonical manifest
+  ↓
+free-space admission when capacity is known
+  ↓
+OpenReadAsync #2
+  ↓
+AttachmentStreamSnapshot.ReadChunksAsync
+  ↓
+SqliteAttachmentSendStore.QueueAsync
+  ↓
+second whole-snapshot SHA-256 verification
+  ↓
+atomic encrypted queue commit
+```
+
+This matters for Android document providers and other sources where a picker result may not map to an ordinary path. It also prevents a source that changes between inspection and queueing from being committed under a stale manifest.
+
+No plaintext sender temp file is created. Once queueing succeeds, retries are reconstructed only from the encrypted durable SQLite snapshot, so later provider permission/path changes do not affect retry correctness.
+
+Transient chunk buffers created by `AttachmentStreamSnapshot` are cleared after the consumer advances.
+
+## Chunk geometry and DYRA
 
 `AttachmentChunk` contains:
 
@@ -113,19 +145,9 @@ For a manifest:
 offset = chunkIndex * 65536
 ```
 
-Every non-final chunk must contain exactly 64 KiB. The final chunk must contain exactly the remaining manifest bytes.
+Every non-final chunk contains exactly 64 KiB. The final chunk contains exactly the remaining manifest bytes.
 
-Manifest-scoped validation rejects a wrong version/attachment ID/index/offset/payload length. This prevents overlapping arbitrary writes and overrun geometry.
-
-## DYRA application frames
-
-`AttachmentApplicationFrameProtocol` uses the binary magic:
-
-```text
-DYRA
-```
-
-and v1 frame types:
+`AttachmentApplicationFrameProtocol` uses magic `DYRA` with frame types:
 
 ```text
 1  manifest
@@ -133,41 +155,13 @@ and v1 frame types:
 3  resume/progress request
 ```
 
-The encoded-frame ceiling is 128 KiB. A maximum 64 KiB chunk plus `DYRA` metadata therefore remains comfortably below the current experimental 256 KiB raw DataChannel/session-frame boundary.
+The encoded-frame ceiling is 128 KiB. Structural decoding rejects malformed/truncated/trailing data, unsupported versions/types, invalid UTF-8 and negative chunk index/offset. Manifest-dependent final-chunk geometry is then checked against the already accepted manifest.
 
-### Manifest frame
+Resume/progress frames contain ordered missing **chunk-index ranges**, not arbitrary byte ranges. Ranges must be positive, ordered, non-overlapping and within the specific manifest.
 
-Carries the canonical 16-byte attachment ID, size, fixed chunk size, 32-byte SHA-256, and bounded UTF-8 filename/content type.
+## DYAC completion
 
-Decoded manifests immediately run full manifest validation.
-
-### Chunk frame
-
-Carries attachment ID, chunk index, byte offset, payload length and payload.
-
-The decoder enforces structural bounds. The receiver must additionally call `AttachmentProtocol.ValidateChunk` against the already accepted manifest before persisting the chunk. A structurally valid frame is not sufficient by itself because canonical final-chunk length depends on the manifest.
-
-### Resume/progress frame
-
-Carries only ordered **missing chunk-index ranges**, not arbitrary byte ranges.
-
-Ranges are bounded by the maximum protocol chunk count, must be positive, ordered and non-overlapping, and must then be validated against the specific accepted manifest with `ValidateResumeRequest`.
-
-On the sender side this frame doubles as durable progress acknowledgement: chunks not listed as missing are marked acknowledged, listed ranges remain retryable, and retry attempts are reset because peer progress was observed.
-
-A stale resume frame may cause redundant retransmission but cannot make the sender delete the immutable source snapshot.
-
-The decoder rejects unsupported versions/types, invalid UTF-8, malformed/truncated frames and trailing bytes.
-
-## DYAC final completion acknowledgement
-
-`AttachmentCompletionAcknowledgementProtocol` uses:
-
-```text
-DYAC
-```
-
-A completion acknowledgement contains only:
+`AttachmentCompletionAcknowledgementProtocol` uses magic `DYAC` and contains only:
 
 ```text
 version
@@ -175,9 +169,9 @@ attachment ID
 whole-file SHA-256
 ```
 
-It is validated against the exact queued manifest. The sender accepts it only from the intended recipient scope and only when both attachment ID and hash match.
+The sender accepts completion only from the intended recipient scope and only when attachment ID and SHA-256 match the queued manifest.
 
-Reporting zero missing chunks is **not** final completion. The sender retains its encrypted snapshot and periodically sends a completion probe until a valid `DYAC` arrives. This keeps “all chunks arrived” distinct from “the receiver reconstructed and verified the complete attachment.”
+Zero missing chunks is not final completion. The sender keeps its encrypted source snapshot and can send a manifest completion probe until a valid `DYAC` is received.
 
 ## Restart-safe encrypted receive state
 
@@ -188,61 +182,114 @@ attachment_receives
 attachment_receive_chunks
 ```
 
-`SqliteAttachmentReceiveStore` scopes all receive state by:
+Receive state is scoped by:
 
 ```text
 (sender PeerId, attachment ID)
 ```
 
-Sensitive values are protected with AES-256-GCM using the existing local-data key:
+Sensitive values are AES-256-GCM protected under the local-data key:
 
 ```text
 filename
 content type
 whole-file SHA-256
-chunk payload
+chunk payloads
 ```
 
-Associated data binds each encrypted value to its peer/attachment/field or peer/attachment/chunk index. Operational geometry such as sender PeerId, attachment ID, size, chunk index and timestamps remains visible SQLite metadata, consistent with Dyract's existing local-storage disclosure boundary.
+Associated data binds each encrypted value to peer/attachment/field or peer/attachment/chunk index.
 
-No plaintext temporary attachment file is introduced inside SQLite.
+Peer IDs, attachment IDs, sizes, chunk indices and timestamps remain visible operational SQLite metadata. Dyract does not claim full local database opacity.
 
-## Verified receiver staging and promotion boundary
+## Verified staging and completion boundary
 
-`SqliteAttachmentReceiveStore.WriteVerifiedStagingAsync` accepts a **caller-owned writable staging stream**. For seekable destinations the stream must be empty and positioned at zero.
+`SqliteAttachmentReceiveStore.WriteVerifiedStagingAsync` reconstructs into a caller-owned writable staging stream only after all chunks exist. It:
 
-The method refuses to reconstruct while any canonical chunk range is missing. It then:
+1. reads durable chunks in canonical order;
+2. decrypts and validates each stored chunk;
+3. writes sequentially to staging;
+4. hashes the exact reconstructed bytes;
+5. verifies exact size/chunk count;
+6. compares complete SHA-256 with the manifest;
+7. returns a non-publicly-constructible `VerifiedAttachmentStaging` token.
 
-1. reads durable chunks in exact index order;
-2. decrypts one chunk at a time;
-3. validates stored chunk length/geometry;
-4. writes sequentially to the caller-owned staging destination;
-5. hashes the exact reconstructed bytes;
-6. verifies exact total size/chunk count;
-7. compares the complete SHA-256 against the manifest in fixed time;
-8. returns a `VerifiedAttachmentStaging` token only after successful verification.
-
-If verification/reconstruction fails and the destination is seekable, Dyract best-effort truncates the staging stream back to zero. Non-seekable/provider-specific cleanup remains the caller's responsibility.
-
-`VerifiedAttachmentStaging` has no public constructor. The intended order is deliberately:
+The completion order is intentionally:
 
 ```text
 WriteVerifiedStagingAsync
         ↓
-caller promotes/moves the verified staging object to final local storage
+platform/app-owned promotion
         ↓
-MarkCompletedAsync(verification token)
+MarkCompletedAsync
         ↓
-completion receipt committed + partial encrypted chunks deleted
+durable completion receipt + active receive deletion
         ↓
 DYAC may be emitted
 ```
 
-This prevents the storage API from issuing final completion merely because all chunks are present. Platform-specific promotion is still owned by the mobile/file-provider layer because Android/iOS providers do not share one universal atomic-rename contract.
+Presence of every chunk alone cannot produce final completion.
 
-If the process dies after verification but before completion commit, the durable encrypted chunks remain and the attachment must be verified again after restart. This is preferable to persisting an unverified “complete” bit.
+## Mobile receive coordinator
 
-## Durable receiver completion receipts
+`AttachmentReceiveFileCoordinator` now owns the transport-independent mobile completion orchestration:
+
+```text
+existing completion receipt?
+  yes -> return stored DYAC; do not reconstruct
+  no  -> continue
+
+load active manifest
+  ↓
+query local available bytes
+  ↓
+reject if known capacity < manifest size
+  ↓
+create generated staging destination
+  ↓
+WriteVerifiedStagingAsync
+  ↓
+PromoteAsync
+  ↓
+MarkCompletedAsync
+```
+
+If verification, promotion or completion fails, the coordinator best-effort aborts staging and does not invent a completion acknowledgement.
+
+A capacity provider may return `null` when a platform/provider cannot determine reliable available bytes. That does not imply infinite space: actual write failures still fail the operation without `DYAC`.
+
+## App-owned Android/iOS destination
+
+The shipping app registers `AppOwnedAttachmentStorage` as both:
+
+```text
+IAttachmentStorageCapacity
+IAttachmentReceiveDestinationFactory
+```
+
+Files live below:
+
+```text
+FileSystem.AppDataDirectory/attachments/
+    staging/
+    received/
+```
+
+Final names are generated from the attachment ID, not the remote filename.
+
+Android available capacity is queried from the app-data filesystem. iOS uses Foundation filesystem attributes. The iOS attachment root/final file is marked to skip cloud backup; failure to apply that exclusion prevents successful completion rather than silently backing up received attachment data.
+
+### Crash/idempotence window
+
+There is an unavoidable process-crash window between successful file promotion and `MarkCompletedAsync`.
+
+The generated final path is deterministic for an attachment ID. If retry sees that final file already exists, promotion verifies its complete size/SHA-256 against the current manifest:
+
+- exact match -> staging can be discarded and completion may proceed;
+- mismatch -> fail closed; never overwrite silently.
+
+This makes the promotion-before-DYAC window recoverable without trusting an unverified existing file.
+
+## Durable completion receipts
 
 Schema migration 6 adds:
 
@@ -250,29 +297,15 @@ Schema migration 6 adds:
 attachment_receive_completions
 ```
 
-After the caller has successfully promoted a verified staging destination, `MarkCompletedAsync` atomically:
+After successful promotion, `MarkCompletedAsync` atomically:
 
-- persists a small completion receipt;
-- deletes the active receive parent row, cascading deletion of encrypted chunks;
-- returns the manifest-bound `DYAC` payload.
+- persists a small encrypted completion receipt;
+- deletes active receive state, cascading encrypted chunks;
+- returns the manifest-bound `DYAC`.
 
-The completion receipt intentionally retains no attachment body, filename or MIME metadata. It stores only:
+The receipt retains no body, filename or MIME metadata. It stores only operational sender/attachment/times plus encrypted manifest fingerprint and SHA-256.
 
-```text
-sender PeerId + attachment ID        operational scope
-canonical manifest fingerprint       AES-256-GCM protected
-whole-file SHA-256                   AES-256-GCM protected
-completed/expires timestamps         operational metadata
-```
-
-The manifest fingerprint is SHA-256 of the canonical accepted `DYRA` manifest frame. If a completion-probe manifest is replayed after restart:
-
-- exact fingerprint match -> `StoreManifestAsync` returns `Completed`, and the stored `DYAC` can be re-emitted;
-- same sender/attachment ID with different manifest content -> fail closed as an ID collision.
-
-This handles a lost final ACK without re-downloading chunks or retaining the attachment itself in the completion table.
-
-Completion receipts are bounded:
+Bounds:
 
 ```text
 retention:                    7 days
@@ -280,7 +313,7 @@ maximum receipts globally:    256
 maximum receipts per sender:   64
 ```
 
-When count bounds are exceeded, the newest receipts are retained. A receipt older than its expiry is not considered authoritative and is removed on lookup/cleanup.
+An exact manifest replay can re-emit the stored final ACK after restart. Reusing the same sender/attachment ID with changed canonical manifest content fails closed.
 
 ## Restart-safe encrypted sender state
 
@@ -297,88 +330,38 @@ Sender state is scoped by:
 (sender PeerId, recipient PeerId, attachment ID)
 ```
 
-`SqliteAttachmentSendStore.QueueAsync` accepts a canonical asynchronous chunk sequence, encrypts each chunk into the database, hashes the exact queued plaintext snapshot, compares that hash with the manifest and commits the entire transfer atomically.
+`SqliteAttachmentSendStore.QueueAsync` requires exactly one canonical ordered chunk sequence, hashes the complete queued plaintext snapshot and commits only if that hash matches the manifest.
 
-The queue operation fails closed if:
+Encrypted sender fields include filename, content type, whole-file hash, chunk payloads and the bounded failure token. Due time, attempts, acknowledgement bits, Peer IDs, sizes and chunk indices remain operational SQLite metadata.
 
-- a chunk is missing, repeated or out of canonical order;
-- chunk geometry does not match the manifest;
-- the complete queued snapshot hash differs from the manifest;
-- the same sender/recipient/attachment ID is already queued;
-- sender queue quotas are exceeded;
-- initialization/storage fails.
+## Sender pending/retry/cancel UX
 
-A failed queue operation leaves no partial durable transfer.
-
-Encrypted sender fields include:
+`SqliteAttachmentSendStatusStore` provides a bounded projection for one exact sender/recipient pair. The conversation UI shows:
 
 ```text
-filename
-content type
-whole-file SHA-256
-chunk payloads
-bounded last-failure diagnostic token
+Pending delivery
+Retry scheduled
+Retry scheduled after a delivery error
+Waiting for final confirmation
 ```
 
-Due-time, attempt count, acknowledgement bits, PeerIds, sizes and chunk indices remain visible operational SQLite metadata.
+It also shows acknowledged/total chunk progress. Raw internal Peer IDs are not displayed by this attachment status UI.
 
-## Sender retry ownership
+`RetryNowAsync` schedules the existing immutable snapshot immediately without replacing content or resetting acknowledged chunks. If every chunk is already acknowledged, Retry schedules the final-confirmation probe.
 
-`AttachmentOutboxWorker` uses the same transport-neutral `IPeerApplicationFrameSender` abstraction as reliable text delivery. It is intentionally **not registered against a shipping transport yet**.
+`CancelAsync` deletes only the exact sender/recipient/attachment transfer and cascades its encrypted chunk rows. The UI requires confirmation.
 
-A due transfer sends:
+There is no silent sender expiry. Sender state remains until:
 
-- the manifest until the receiver has emitted a valid resume/progress frame;
-- only currently missing/unacknowledged chunks after progress is known;
-- the manifest again as a completion probe when no chunks are missing but final completion is not acknowledged.
+1. valid recipient-scoped `DYAC`;
+2. explicit user cancellation;
+3. destructive identity/local-data reset.
 
-Successful send attempts move the transfer to an ACK-timeout retry. Transport failures use bounded exponential retry. Progress acknowledgements reschedule missing work immediately.
+See `docs/attachment-sender-lifecycle.md`.
 
-Exact retry frames are derived from the immutable encrypted sender snapshot rather than re-reading a potentially changed source file.
+## Quotas and free-space policy
 
-A valid final `DYAC` removes the sender transfer and cascades deletion of its encrypted chunk snapshot.
-
-## Duplicate and collision behavior
-
-Active manifest registration is idempotent only if all manifest content matches the previously stored receive manifest for the same peer/attachment ID.
-
-Receive chunk storage uses the primary key:
-
-```text
-(sender PeerId, attachment ID, chunk index)
-```
-
-An exact duplicate chunk returns `Duplicate`. If the same identity/index is presented with different plaintext bytes, the store fails closed with a collision error rather than replacing the existing chunk.
-
-After verified completion, the durable manifest fingerprint applies the same collision rule without retaining individual chunks.
-
-## Resume model
-
-The receive store persists validated chunk indices. After process/store recreation, `GetMissingRangesAsync` reconstructs the missing ranges from durable state.
-
-Example:
-
-```text
-chunks:    0 1 2 3 4 5
-received:  x   x x   x
-missing:   [1,1] [4,1]
-```
-
-Duplicate received indices are harmless. Out-of-range indices fail closed.
-
-## Integrity verification
-
-The sender manifest includes SHA-256 of the complete attachment.
-
-The receiver does not create a completion receipt until the durable chunks have been reconstructed into caller-owned staging and the exact complete-file size and SHA-256 match the manifest.
-
-`AttachmentProtocol.VerifySha256Async` remains available as a general streaming verifier; `WriteVerifiedStagingAsync` performs the same completion boundary while reconstructing encrypted receive chunks.
-
-A SHA-256 match is an integrity check, not malware/content safety validation.
-
-## Send/receive quotas
-
-Migrations 4 and 5 add atomic SQLite triggers for active reservations:
+SQLite reservation quotas remain:
 
 ```text
 receive:
@@ -394,46 +377,48 @@ send:
   maximum declared active bytes per peer:  200 MiB
 ```
 
-These limits are enforced where parent transfer state is inserted, not only through process-local counters, so concurrent paths cannot independently bypass the reservation check.
+These quotas prevent unbounded durable reservation but are not a substitute for real filesystem capacity.
 
-They are prototype safety limits and may be tuned after real-device profiling. The separate per-attachment protocol maximum remains 100 MiB.
+The mobile sender preflights capacity before copying a selected file into the encrypted snapshot. The receive coordinator preflights capacity before reconstructing verified staging. Capacity is checked against at least the manifest body size; physical low-disk validation remains required because filesystem metadata can change immediately after a check and encrypted SQLite/staging overhead also consumes space.
 
-Actual free-space checks still belong to mobile integration because database reservation cannot know whether the OS/storage provider is near capacity.
+## Cleanup and reset
 
-## Cleanup policy
-
-Receiver-side cleanup now distinguishes incomplete data from tiny completion receipts:
+Receiver cleanup:
 
 ```text
 inactive partial receive retention: 14 days
 completion receipt retention:        7 days
 ```
 
-`CleanupStaleAsync` deletes inactive partial parent rows (cascading chunk deletion) and expired completion receipts transactionally.
+Sender snapshots do not expire on time alone.
 
-The cleanup policy deliberately does not guess whether a mobile destination/provider has enough free space. Free-space checks must happen before accepting/staging data in the platform integration layer.
+Destructive installation reset now removes:
 
-Sender-side abandoned-outbox expiry is still open because automatically deleting a not-yet-delivered sender snapshot changes user-visible delivery guarantees and needs an explicit UX policy (cancel, retry indefinitely, or expire after a declared period).
+- attachment sender rows/chunks;
+- active receive rows/chunks;
+- completion receipts;
+- app-owned attachment staging files;
+- app-owned promoted received files;
+- the rest of identity-bound local database state;
+- identity/local-data secrets.
 
-## Reset behavior
-
-Destructive Dyract identity/local-data reset deletes partial receive state, completion receipts and queued sender snapshots before rotating the local-data key. The resetter also tolerates databases from earlier versions where attachment tables do not yet exist.
+If app-owned file deletion fails, the pending-reset marker remains, so a later startup resumes the destructive reset instead of declaring success with leftover files.
 
 ## Still open
 
-Before attachments are a shipping feature:
+Before attachments are a production feature:
 
-- integrate `DYRA`/`DYAC` with the proven production `IPeerTransport`/frame sender inside authenticated `DYSE` sessions;
-- implement platform-specific promotion/generated destination behavior after `WriteVerifiedStagingAsync` succeeds;
-- enforce actual mobile free-space checks in addition to reservation quotas;
-- handle Android/iOS file picker/provider permissions safely;
-- define user-visible sender cancellation/abandoned-outbox expiry policy;
-- add optional thumbnails without decoding untrusted content in a privileged path;
-- test interruption/resume, final-ACK loss, low-disk behavior, malicious frames/manifests, staging/promotion and reset on physical Android/iOS devices;
+- integrate `DYRA`/`DYAC` with the physically proven production peer transport inside authenticated `DYSE` sessions;
+- add optional thumbnails/previews without decoding untrusted content in a privileged path;
+- validate Android/iOS picker/provider behavior on physical devices;
+- validate low-disk behavior under real filesystem pressure;
+- validate interruption/restart around staging, promotion and the promotion-before-DYAC window;
+- validate sender retry/cancel and destructive reset physically on both platforms;
+- validate malicious frame/manifest handling through the real production transport lifecycle;
 - keep push/directory metadata opaque and attachment-free.
 
 ## Repository acceptance
 
-Repository-side manifest validation, canonical chunk geometry, `DYRA` manifest/chunk/resume framing, `DYAC` final-completion framing, encrypted restart-safe receive state, verified caller-owned staging, bounded durable completion receipts/final-ACK replay, receiver cleanup, encrypted restart-safe sender snapshots, peer scoping, sender retry scheduling, progress acknowledgement handling, exact-duplicate/collision handling, send/receive reservation quotas, SHA-256 verification and safe filename/content-type bounds are implemented with regression coverage.
+Repository-side acceptance now covers the protocol framing, encrypted durable send/receive state, verified staging, durable completion replay, sender retry/cancel lifecycle, stream-safe provider snapshotting, generated app-owned destination orchestration, free-space admission contracts, mobile pending attachment UI and reset coverage of app-owned attachment files.
 
-Production transport integration and platform/mobile file lifecycle remain unfinished and therefore stay in `plan.md`.
+The remaining PLAN items are transport integration, thumbnails and physical Android/iOS validation. No claim is made that the new mobile attachment path has passed physical-device validation or that shipping P2P attachment delivery is connected.
