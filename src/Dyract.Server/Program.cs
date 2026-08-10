@@ -24,7 +24,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.MaxDepth = 16;
 });
 
-var identityConnectionString = builder.Configuration.GetConnectionString("Dyract");
+var identityConnectionString = ProductionSecretPolicy.GetConnectionString(
+    builder.Configuration,
+    ProductionSecretPolicy.PostgreSqlConnectionName,
+    builder.Environment.EnvironmentName);
 if (string.IsNullOrWhiteSpace(identityConnectionString))
 {
     builder.Services.AddSingleton<IIdentityStore, InMemoryIdentityStore>();
@@ -39,7 +42,10 @@ else
     builder.Services.AddHostedService<PostgresSchemaInitializer>();
 }
 
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+var redisConnectionString = ProductionSecretPolicy.GetConnectionString(
+    builder.Configuration,
+    ProductionSecretPolicy.RedisConnectionName,
+    builder.Environment.EnvironmentName);
 if (string.IsNullOrWhiteSpace(redisConnectionString))
 {
     builder.Services.AddSingleton<IRegistrationChallengeStore, RegistrationChallengeStore>();
@@ -401,7 +407,7 @@ static async Task<IResult> RemovePresence(
     var identity = await identities.GetAsync(peerId, cancellationToken);
     if (identity is null)
     {
-        return Unauthorized("peer_unknown", "Peer is not registered.");
+        return Unauthorized("peer_unknown", "Peer is not a registered Dyract peer.");
     }
 
     var now = timeProvider.GetUtcNow();
