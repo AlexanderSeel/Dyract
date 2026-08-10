@@ -234,6 +234,7 @@ See `docs/device-compromise-recovery.md`.
 - [x] migration 3 adds encrypted durable partial attachment receive/chunk state.
 - [x] migration 4 adds atomic per-peer/global attachment receive reservation quotas.
 - [x] migration 5 adds encrypted durable attachment sender snapshots/outbox state and send quotas.
+- [x] migration 6 adds encrypted bounded attachment completion receipts for final-ACK replay.
 - [x] existing encrypted contact data preserved through current-version upgrade tests.
 - [x] newer/malformed database versions rejected fail-closed.
 - [x] transactional user-row reset preserves schema/migration ledger for in-process key rotation.
@@ -386,7 +387,7 @@ See `docs/reliable-messaging.md`.
 
 ## 11. Phase 7 — attachments
 
-**Status: transport-neutral wire/send/receive/retry foundation implemented; verified completion, production transport and mobile file lifecycle remain.**
+**Status: transport-neutral wire/send/receive/retry/verified-completion foundation implemented; production transport and platform file lifecycle remain.**
 
 Implemented:
 
@@ -409,18 +410,24 @@ Implemented:
 - [x] sender retains source snapshot after zero-missing progress until recipient-scoped hash-bound completion ACK.
 - [x] transport-neutral attachment outbox worker with bounded send/ACK retry scheduling.
 - [x] atomic database-enforced active send count/declared-byte quotas per recipient and globally.
+- [x] verified reconstruction into empty caller-owned staging with exact size/chunk/SHA-256 checks.
+- [x] non-public verification token keeps final completion separate from merely receiving every chunk.
+- [x] bounded encrypted receiver-completed receipts survive restart and re-emit final `DYAC` on an exact manifest replay.
+- [x] completed attachment-ID reuse with changed canonical manifest content fails closed.
+- [x] receiver cleanup expires inactive partial receives after 14 days and completion receipts after 7 days.
+- [x] completion receipts bounded to 64 per sender / 256 globally.
 - [x] attachment receive/send persistence registered in shipping DI without connecting an unproven transport.
-- [x] destructive identity reset clears both receive and sender attachment state and remains compatible with pre-attachment schemas.
+- [x] destructive identity reset clears partial, completed-receipt and sender attachment state while remaining compatible with older schemas.
 
 Remaining:
 
 - [ ] chunked direct-transfer integration through the proven production peer transport inside authenticated sessions.
-- [ ] reconstruct into caller-owned staging destination and promote only after complete SHA-256 verification.
-- [ ] bounded durable receiver-completed tombstone/re-emission behavior for lost final `DYAC`.
+- [ ] platform-specific promotion/generated-destination behavior after verified staging succeeds.
 - [ ] mobile free-space checks in addition to database reservation quotas.
-- [ ] mobile file picker/provider/generated-destination handling.
-- [ ] abandoned partial/completed-transfer expiry/cleanup policy and thumbnails.
-- [ ] Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest and reset validation.
+- [ ] mobile file picker/provider permission and lifecycle handling.
+- [ ] explicit user-visible sender cancel/abandoned-outbox expiry policy.
+- [ ] thumbnails with safe untrusted-content handling.
+- [ ] Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion and reset validation.
 
 See `docs/attachments.md`.
 
@@ -497,4 +504,4 @@ Transport-dependent product work remains gated by physical evidence.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
 10. Configure/validate production secret management, observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
-11. Continue attachment verified staging/promotion plus durable completed-receipt/final-ACK re-emission and cleanup mechanics without connecting it to an unproven production transport.
+11. Continue attachment platform destination/free-space handling and explicit sender cancellation/expiry semantics without connecting it to an unproven production transport.
