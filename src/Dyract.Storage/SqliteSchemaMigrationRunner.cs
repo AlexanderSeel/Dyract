@@ -9,7 +9,7 @@ namespace Dyract.Storage;
 /// </summary>
 public sealed class SqliteSchemaMigrationRunner
 {
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     private static readonly MigrationDefinition[] Migrations =
     [
@@ -106,6 +106,20 @@ public sealed class SqliteSchemaMigrationRunner
             BEGIN
                 SELECT RAISE(ABORT, 'attachment_send_quota');
             END;
+            """),
+        new(6, "durable-attachment-completion-receipts", """
+            CREATE TABLE attachment_receive_completions (
+                sender_peer_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL,
+                manifest_fingerprint BLOB NOT NULL,
+                sha256 BLOB NOT NULL,
+                completed_utc INTEGER NOT NULL,
+                expires_utc INTEGER NOT NULL,
+                PRIMARY KEY(sender_peer_id, attachment_id)
+            );
+
+            CREATE INDEX ix_attachment_receive_completions_expiry
+                ON attachment_receive_completions(expires_utc, completed_utc, sender_peer_id, attachment_id);
             """)
     ];
 
