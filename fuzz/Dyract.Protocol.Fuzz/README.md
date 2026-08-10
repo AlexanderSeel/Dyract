@@ -19,10 +19,10 @@ Expected malformed-input rejection is suppressed only at the documented parser b
 Generate deterministic valid seeds before a campaign:
 
 ```powershell
-dotnet run --project fuzz/Dyract.Protocol.Fuzz/Dyract.Protocol.Fuzz.csproj -- --generate-corpus .artifacts/fuzz/protocol-corpus
+dotnet run --project fuzz/Dyract.Protocol.Fuzz/Dyract.Protocol.Fuzz.csproj -- --generate-corpus artifacts/fuzz/protocol-corpus
 ```
 
-The generated corpus contains canonical `DYRM`, `DYRA` manifest/chunk/resume and `DYAC` frames. Do not commit `.artifacts` output.
+The generated corpus contains canonical `DYRM`, `DYRA` manifest/chunk/resume and `DYAC` frames. The repository already ignores `artifacts/`; generated campaign output is therefore local by default.
 
 ## Running libFuzzer
 
