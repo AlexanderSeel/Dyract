@@ -251,6 +251,11 @@ public static class AttachmentApplicationFrameProtocol
         var attachmentId = Convert.ToHexString(Read(encoded, ref offset, IdSize)).ToLowerInvariant();
         var chunkIndex = ReadInt32(encoded, ref offset);
         var chunkOffset = ReadInt64(encoded, ref offset);
+        if (chunkIndex < 0 || chunkOffset < 0)
+        {
+            throw new InvalidDataException("Attachment chunk index and offset must be non-negative.");
+        }
+
         var payloadLength = ReadInt32(encoded, ref offset);
         if (payloadLength is < 1 or > AttachmentProtocol.ChunkSizeBytes)
         {
