@@ -9,7 +9,7 @@ namespace Dyract.Storage;
 /// </summary>
 public sealed class SqliteSchemaMigrationRunner
 {
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 
     private static readonly MigrationDefinition[] Migrations =
     [
@@ -57,6 +57,54 @@ public sealed class SqliteSchemaMigrationRunner
                 OR COALESCE((SELECT SUM(size_bytes) FROM attachment_receives WHERE sender_peer_id = NEW.sender_peer_id), 0) + NEW.size_bytes > 209715200
             BEGIN
                 SELECT RAISE(ABORT, 'attachment_receive_quota');
+            END;
+            """),
+        new(5, "durable-attachment-send-outbox", """
+            CREATE TABLE attachment_sends (
+                sender_peer_id TEXT NOT NULL,
+                recipient_peer_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL,
+                file_name BLOB NOT NULL,
+                content_type BLOB NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                chunk_size INTEGER NOT NULL,
+                sha256 BLOB NOT NULL,
+                created_utc INTEGER NOT NULL,
+                updated_utc INTEGER NOT NULL,
+                next_attempt_utc INTEGER NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                manifest_acknowledged INTEGER NOT NULL DEFAULT 0,
+                last_failure BLOB NULL,
+                PRIMARY KEY(sender_peer_id, recipient_peer_id, attachment_id)
+            );
+
+            CREATE INDEX ix_attachment_sends_due
+                ON attachment_sends(next_attempt_utc, sender_peer_id, recipient_peer_id, attachment_id);
+
+            CREATE TABLE attachment_send_chunks (
+                sender_peer_id TEXT NOT NULL,
+                recipient_peer_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                payload BLOB NOT NULL,
+                payload_length INTEGER NOT NULL,
+                acknowledged INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(sender_peer_id, recipient_peer_id, attachment_id, chunk_index),
+                FOREIGN KEY(sender_peer_id, recipient_peer_id, attachment_id)
+                    REFERENCES attachment_sends(sender_peer_id, recipient_peer_id, attachment_id)
+                    ON DELETE CASCADE
+                    DEFERRABLE INITIALLY DEFERRED
+            );
+
+            CREATE TRIGGER attachment_sends_quota_before_insert
+            BEFORE INSERT ON attachment_sends
+            WHEN
+                (SELECT COUNT(*) FROM attachment_sends) >= 16
+                OR (SELECT COUNT(*) FROM attachment_sends WHERE recipient_peer_id = NEW.recipient_peer_id) >= 4
+                OR COALESCE((SELECT SUM(size_bytes) FROM attachment_sends), 0) + NEW.size_bytes > 536870912
+                OR COALESCE((SELECT SUM(size_bytes) FROM attachment_sends WHERE recipient_peer_id = NEW.recipient_peer_id), 0) + NEW.size_bytes > 209715200
+            BEGIN
+                SELECT RAISE(ABORT, 'attachment_send_quota');
             END;
             """)
     ];
