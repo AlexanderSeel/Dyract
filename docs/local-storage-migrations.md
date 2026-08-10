@@ -5,7 +5,7 @@ Dyract treats the local database as device-owned user data. Schema upgrades must
 ## Current version
 
 ```text
-SqliteSchemaMigrationRunner.CurrentVersion = 4
+SqliteSchemaMigrationRunner.CurrentVersion = 5
 ```
 
 The historical database bootstrap still records:
@@ -30,6 +30,7 @@ Current migrations:
 2  track-issued-contact-capability
 3  durable-attachment-receive-state
 4  bound-attachment-receive-reservations
+5  durable-attachment-send-outbox
 ```
 
 ### Migration 1 — baseline-v1
@@ -77,6 +78,36 @@ The trigger uses `RAISE(ABORT, 'attachment_receive_quota')`. Enforcing the limit
 
 The separate protocol maximum remains 100 MiB per attachment.
 
+### Migration 5 — durable-attachment-send-outbox
+
+Migration 5 adds the sender-owned attachment outbox:
+
+```text
+attachment_sends
+attachment_send_chunks
+```
+
+A queued transfer is scoped by:
+
+```text
+(sender PeerId, recipient PeerId, attachment ID)
+```
+
+The sender snapshot stores encrypted filename, MIME metadata, SHA-256, chunk payloads and bounded failure diagnostics with the existing local-data key. Scheduling geometry such as attempts, due time, acknowledgement bits, PeerIds, sizes and chunk indices remains visible operational SQLite metadata.
+
+Chunk rows use a deferred foreign key so `SqliteAttachmentSendStore.QueueAsync` can stream canonical chunks into one SQLite transaction, hash the complete snapshot, verify it against the manifest, insert the parent transfer record and commit atomically. A cancellation, malformed chunk sequence, hash mismatch, duplicate attachment ID or quota failure rolls the transaction back rather than leaving a partial sender snapshot.
+
+Sender reservations use the same prototype bounds as receive state:
+
+```text
+maximum active sends globally: 16
+maximum active sends per recipient: 4
+maximum declared active bytes globally: 512 MiB
+maximum declared active bytes per recipient: 200 MiB
+```
+
+Resume frames update durable per-chunk acknowledgement bits. The sender snapshot is **not** removed merely because the receiver reports no missing chunks; it remains until a manifest-bound final completion acknowledgement is accepted.
+
 ## Initialization
 
 The shipping MAUI app resolves `ILocalStore` to `MigratingLocalStore`.
@@ -114,7 +145,7 @@ A legacy v1 database therefore upgrades in-place while preserving existing conta
 9. Destructive migrations require an explicit backup/recovery design and separate review.
 10. The migration runner does not weaken the local encryption boundary; it changes schema metadata/structure only.
 
-## Adding migration v5+
+## Adding migration v6+
 
 When the next real schema change is needed:
 
@@ -133,18 +164,25 @@ Do **not** advance the schema for bookkeeping alone.
 
 The suite verifies:
 
-- a fresh migrating database records migrations 1 through 4 exactly once;
+- a fresh migrating database records migrations 1 through 5 exactly once;
 - migration 2 creates `contacts.granted_capability`;
-- migrations 3 and 4 create attachment receive tables and the quota trigger;
+- migrations 3 and 4 create attachment receive tables and the receive quota trigger;
+- migration 5 creates attachment sender/outbox tables and its quota trigger;
 - an existing historical v1 database upgrades to the current version without losing encrypted contact data;
 - a database from a newer Dyract build is rejected;
 - malformed legacy schema metadata is rejected;
-- partial attachment state survives a fresh store instance and produces the expected missing ranges;
-- exact duplicate manifests/chunks are idempotent while changed-content collisions fail closed;
+- partial attachment receive state survives a fresh store instance and produces the expected missing ranges;
+- exact duplicate receive manifests/chunks are idempotent while changed-content collisions fail closed;
 - attachment receive state is sender-peer scoped;
-- sensitive attachment filename/chunk sentinels do not appear as plaintext in the checkpointed SQLite database;
+- sensitive receive filename/chunk sentinels do not appear as plaintext in the checkpointed SQLite database;
 - the per-sender active receive limit is enforced at the database boundary;
-- destructive identity reset clears partial attachment state while still supporting databases created before attachment tables existed.
+- sender snapshots survive a fresh store instance and preserve canonical chunk retry state;
+- sender chunk payloads are encrypted at rest;
+- sender snapshot hash mismatch rolls the entire queue operation back;
+- progress resumes acknowledge already-received chunks while retaining missing chunks for retransmission;
+- final completion is recipient-scoped and removes sender state only when attachment ID and SHA-256 match;
+- the per-recipient active send limit is enforced at the database boundary;
+- destructive identity reset clears both partial receive and queued send attachment state while still supporting databases created before attachment tables existed.
 
 ## Recovery boundary
 
