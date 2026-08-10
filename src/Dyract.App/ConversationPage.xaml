@@ -3,9 +3,10 @@
     x:Class="Dyract.App.ConversationPage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:app="clr-namespace:Dyract.App"
     xmlns:storage="clr-namespace:Dyract.Storage;assembly=Dyract.Storage">
 
-    <Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="12">
+    <Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto,Auto" RowSpacing="12">
         <Border Grid.Row="0" Padding="12" StrokeThickness="1">
             <Border.StrokeShape>
                 <RoundRectangle CornerRadius="12" />
@@ -85,15 +86,64 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <VerticalStackLayout
+            x:Name="PendingAttachmentsSection"
+            Grid.Row="2"
+            IsVisible="False"
+            Spacing="6">
+            <Label FontAttributes="Bold" FontSize="13" Text="Pending attachments" />
+            <CollectionView
+                x:Name="PendingAttachmentsView"
+                MaximumHeightRequest="190"
+                SelectionMode="None">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="app:PendingAttachmentView">
+                        <Border Margin="0,2" Padding="10" StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="10" />
+                            </Border.StrokeShape>
+                            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="6">
+                                <Label Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" FontAttributes="Bold" LineBreakMode="TailTruncation" Text="{Binding FileName}" />
+                                <Label Grid.Row="1" Grid.Column="0" FontSize="10" Text="{Binding StatusText}" />
+                                <Label Grid.Row="2" Grid.Column="0" FontSize="10" Text="{Binding DetailText}" />
+                                <Button
+                                    Grid.Row="1"
+                                    Grid.RowSpan="2"
+                                    Grid.Column="1"
+                                    Clicked="OnRetryAttachmentClicked"
+                                    CommandParameter="{Binding .}"
+                                    FontSize="11"
+                                    Text="Retry" />
+                                <Button
+                                    Grid.Row="1"
+                                    Grid.RowSpan="2"
+                                    Grid.Column="2"
+                                    Clicked="OnCancelAttachmentClicked"
+                                    CommandParameter="{Binding .}"
+                                    FontSize="11"
+                                    Text="Cancel" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </VerticalStackLayout>
+
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <Button
+                x:Name="AttachButton"
+                Grid.Column="0"
+                Clicked="OnAttachClicked"
+                IsEnabled="False"
+                Text="Attach" />
             <Entry
                 x:Name="ComposerEntry"
-                Grid.Column="0"
+                Grid.Column="1"
                 Completed="OnComposerCompleted"
                 Placeholder="Message" />
             <Button
                 x:Name="SendButton"
-                Grid.Column="1"
+                Grid.Column="2"
                 Clicked="OnSendClicked"
                 IsEnabled="False"
                 Text="Send" />
@@ -101,7 +151,7 @@
 
         <Label
             x:Name="ConversationStatusLabel"
-            Grid.Row="3"
+            Grid.Row="4"
             FontSize="11"
             Text="Loading encrypted conversation…" />
     </Grid>
