@@ -27,7 +27,7 @@ The target is **minimum necessary infrastructure with no central conversation hi
 ## 3. Repository structure
 
 ```text
-Dyract.slnx                 core/server/storage/transport/tests
+Dyract.slnx                 core/server/storage/transport/tests/fuzz harness
 Dyract.Mobile.slnx          shipping MAUI Android/iOS app
 Dyract.TransportSpike.slnx  isolated Android WebRTC experiment
 
@@ -47,6 +47,9 @@ experiments/
 
 tests/
   Dyract.Tests/
+
+fuzz/
+  Dyract.Protocol.Fuzz/     SharpFuzz/libFuzzer frame-parser harness + seed generator
 
 docs/
   session-security.md
@@ -338,7 +341,7 @@ Current Android harness builds expose `XA0141`: the bundled `libjingle_peerconne
 Remaining:
 
 - [ ] independent cryptographic review.
-- [ ] coverage-guided/external fuzzing beyond deterministic repository regression properties.
+- [ ] coverage-guided stateful `DYSH`/`DYSE` session-sequence fuzz target and external campaign evidence.
 - [ ] decide reconnect-level forward secrecy vs reviewed Noise/Double-Ratchet design.
 
 See `docs/session-security.md` and `docs/protocol-fuzzing.md`.
@@ -402,6 +405,7 @@ Implemented:
 - [x] bounded display filename and simple MIME metadata validation.
 - [x] remote filename explicitly treated as metadata, not a trusted local path.
 - [x] versioned bounded `DYRA` manifest/chunk/resume application-frame codec for authenticated `DYSE` payloads.
+- [x] structural `DYRA` chunk decoding rejects negative index/offset before manifest-scoped validation.
 - [x] manifest-scoped chunk and resume validation after structural frame decoding.
 - [x] versioned manifest-bound `DYAC` final completion acknowledgement.
 - [x] encrypted peer-scoped durable partial receive/chunk state for restart-safe resume.
@@ -479,11 +483,12 @@ Before public production use:
 - [x] repository endpoint-enumeration/capability-abuse integration tests.
 - [x] stolen-device/recovery analysis.
 - [x] SBOM/dependency automation.
-- [ ] coverage-guided/external fuzzing and minimized corpus workflow.
+- [x] coverage-guided SharpFuzz/libFuzzer harness for `DYRM`/`DYRA`/`DYAC` with deterministic seed generation and canonical round-trip invariants.
+- [ ] run/schedule external fuzz campaigns, retain minimized regression corpus/findings and extend coverage-guided fuzzing to stateful `DYSH`/`DYSE` plus proven production transport sequences.
 - [ ] independent cryptographic review.
 - [ ] mobile secure-storage review.
 
-See `docs/threat-model.md`, `docs/protocol-fuzzing.md`, `docs/device-compromise-recovery.md` and `docs/sbom.md`.
+See `docs/threat-model.md`, `docs/protocol-fuzzing.md`, `fuzz/Dyract.Protocol.Fuzz/README.md`, `docs/device-compromise-recovery.md` and `docs/sbom.md`.
 
 ## 14. Deferred until one-to-one messaging is proven
 
@@ -509,5 +514,5 @@ Transport-dependent product work remains gated by physical evidence.
 7. Select and implement the iOS WebRTC transport adapter, then run Android -> iPhone physical tests.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
-10. Deploy/validate the production secret manager plus observability retention/access and PostgreSQL backup/PITR restore drills; continue platform-native key evaluation, coverage-guided fuzzing and independent security/cryptographic review in parallel.
+10. Deploy/validate the production secret manager plus observability retention/access and PostgreSQL backup/PITR restore drills; run external coverage-guided fuzz campaigns and continue platform-native key evaluation plus independent security/cryptographic review in parallel.
 11. Continue attachment platform destination/free-space handling and mobile sender pending/retry/cancel UX without connecting it to an unproven production transport.
