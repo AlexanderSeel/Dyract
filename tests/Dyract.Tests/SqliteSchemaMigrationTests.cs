@@ -39,12 +39,20 @@ public sealed class SqliteSchemaMigrationTests
                 {
                     Assert.Equal(4, migration.Version);
                     Assert.Equal("bound-attachment-receive-reservations", migration.Name);
+                },
+                migration =>
+                {
+                    Assert.Equal(5, migration.Version);
+                    Assert.Equal("durable-attachment-send-outbox", migration.Name);
                 });
 
             Assert.True(await ColumnExistsAsync(databasePath, "contacts", "granted_capability"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
             Assert.True(await TriggerExistsAsync(databasePath, "attachment_receives_quota_before_insert"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_sends"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_send_chunks"));
+            Assert.True(await TriggerExistsAsync(databasePath, "attachment_sends_quota_before_insert"));
         }
         finally
         {
@@ -81,9 +89,12 @@ public sealed class SqliteSchemaMigrationTests
             Assert.True(await TableExistsAsync(databasePath, "attachment_receives"));
             Assert.True(await TableExistsAsync(databasePath, "attachment_receive_chunks"));
             Assert.True(await TriggerExistsAsync(databasePath, "attachment_receives_quota_before_insert"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_sends"));
+            Assert.True(await TableExistsAsync(databasePath, "attachment_send_chunks"));
+            Assert.True(await TriggerExistsAsync(databasePath, "attachment_sends_quota_before_insert"));
 
             var migrations = await ReadMigrationsAsync(databasePath);
-            Assert.Equal(new[] { 1, 2, 3, 4 }, migrations.Select(value => value.Version).ToArray());
+            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, migrations.Select(value => value.Version).ToArray());
         }
         finally
         {
