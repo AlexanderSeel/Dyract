@@ -44,16 +44,31 @@ public sealed class SqliteLocalResetterTests
                 sender.PeerId.Value,
                 AttachmentProtocol.CreateChunk(manifest, 0, attachmentData));
 
+            var sendData = RandomNumberGenerator.GetBytes(31);
+            var sendManifest = AttachmentProtocol.CreateManifest(
+                "outgoing.bin",
+                null,
+                sendData.Length,
+                SHA256.HashData(sendData));
+            var sendStore = new SqliteAttachmentSendStore(databasePath, firstKey, originalStore);
+            await sendStore.QueueAsync(
+                sender.PeerId.Value,
+                firstContact.PeerId.Value,
+                sendManifest,
+                EnumerateSingleChunk(sendManifest, sendData));
+
             Assert.Single(await originalStore.GetContactsAsync());
             Assert.Single(await originalStore.GetMessagesAsync(conversation.ConversationId));
             Assert.Single(await originalStore.GetPendingOutboxAsync());
             Assert.NotNull(await receiveStore.GetManifestAsync(sender.PeerId.Value, manifest.AttachmentId));
+            Assert.Single(await sendStore.GetDueAsync(DateTimeOffset.UtcNow.AddMinutes(1)));
 
             await SqliteLocalResetter.ResetUserDataAsync(databasePath);
 
             Assert.Empty(await originalStore.GetContactsAsync());
             Assert.Empty(await originalStore.GetPendingOutboxAsync());
             Assert.Null(await receiveStore.GetManifestAsync(sender.PeerId.Value, manifest.AttachmentId));
+            Assert.Empty(await sendStore.GetDueAsync(DateTimeOffset.UtcNow.AddMinutes(1)));
 
             using var secondContact = PeerIdentity.Generate();
             var rotatedStore = new MigratingLocalStore(databasePath, new FixedKeyProvider(0x52));
@@ -98,6 +113,14 @@ public sealed class SqliteLocalResetterTests
         {
             DeleteDatabaseFiles(databasePath);
         }
+    }
+
+    private static async IAsyncEnumerable<AttachmentChunk> EnumerateSingleChunk(
+        AttachmentManifest manifest,
+        byte[] data)
+    {
+        yield return AttachmentProtocol.CreateChunk(manifest, 0, data);
+        await Task.Yield();
     }
 
     private static string CreateDatabasePath()
