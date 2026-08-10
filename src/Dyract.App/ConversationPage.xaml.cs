@@ -21,10 +21,10 @@ public sealed record PendingAttachmentView(AttachmentSendStatus Status)
                 : "Pending delivery";
 
     public string DetailText => Status.WaitingForCompletion
-        ? $"{FormatBytes(Status.Manifest.SizeBytes)} • all {Status.TotalChunks} chunks confirmed"
-        : $"{FormatBytes(Status.Manifest.SizeBytes)} • {Status.AcknowledgedChunks}/{Status.TotalChunks} chunks confirmed";
+        ? $"{FormatBytesForUi(Status.Manifest.SizeBytes)} • all {Status.TotalChunks} chunks confirmed"
+        : $"{FormatBytesForUi(Status.Manifest.SizeBytes)} • {Status.AcknowledgedChunks}/{Status.TotalChunks} chunks confirmed";
 
-    private static string FormatBytes(long value)
+    public static string FormatBytesForUi(long value)
         => value >= 1024L * 1024L
             ? $"{value / (1024d * 1024d):0.#} MB"
             : value >= 1024
