@@ -7,4 +7,5 @@
   <Project Path="src/Dyract.Transport/Dyract.Transport.csproj" />
   <Project Path="src/Dyract.Server/Dyract.Server.csproj" />
   <Project Path="tests/Dyract.Tests/Dyract.Tests.csproj" />
+  <Project Path="fuzz/Dyract.Protocol.Fuzz/Dyract.Protocol.Fuzz.csproj" />
 </Solution>
