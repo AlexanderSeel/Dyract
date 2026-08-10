@@ -1,3 +1,4 @@
+using Dyract.App.Attachments;
 using Dyract.App.Directory;
 using Dyract.App.Security;
 using Dyract.Client;
@@ -59,11 +60,23 @@ public static class MauiProgram
             var localStore = services.GetRequiredService<ILocalStore>();
             return new SqliteAttachmentSendStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
+        builder.Services.AddSingleton<SqliteAttachmentSendStatusStore>(services =>
+        {
+            var keyProvider = services.GetRequiredService<ILocalEncryptionKeyProvider>();
+            var localStore = services.GetRequiredService<ILocalStore>();
+            return new SqliteAttachmentSendStatusStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
+        });
         builder.Services.AddSingleton<SqliteAttachmentSendMaintenance>(services =>
         {
             var localStore = services.GetRequiredService<ILocalStore>();
             return new SqliteAttachmentSendMaintenance(InstallationResetService.LocalDatabasePath, localStore);
         });
+        builder.Services.AddSingleton<AppOwnedAttachmentStorage>();
+        builder.Services.AddSingleton<IAttachmentStorageCapacity>(services =>
+            services.GetRequiredService<AppOwnedAttachmentStorage>());
+        builder.Services.AddSingleton<IAttachmentReceiveDestinationFactory>(services =>
+            services.GetRequiredService<AppOwnedAttachmentStorage>());
+        builder.Services.AddSingleton<AttachmentReceiveFileCoordinator>();
         builder.Services.AddSingleton<IIncomingMessageStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
         builder.Services.AddSingleton<IOutgoingDeliveryStore>(services =>
