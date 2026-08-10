@@ -59,7 +59,7 @@ public sealed class AttachmentOutboxWorkerTests
 
         Assert.Equal(1, outbox.SentAttempts);
         Assert.Equal(0, outbox.FailedAttempts);
-        Assert.Equal(time.GetUtcNow().Add(OutboxDeliveryWorker.ComputeAckRetryDelay(0)), outbox.NextAttemptAt);
+        Assert.Equal(time.GetUtcNow().AddSeconds(10), outbox.NextAttemptAt);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class AttachmentOutboxWorkerTests
         Assert.Equal(0, outbox.SentAttempts);
         Assert.Equal(1, outbox.FailedAttempts);
         Assert.Equal("send:IOException", outbox.FailureCode);
-        Assert.Equal(time.GetUtcNow().Add(OutboxDeliveryWorker.ComputeFailureDelay(2)), outbox.NextAttemptAt);
+        Assert.Equal(time.GetUtcNow().AddSeconds(8), outbox.NextAttemptAt);
     }
 
     private sealed class FakeAttachmentSendStore(DueAttachmentSend due) : IAttachmentSendStore
