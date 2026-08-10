@@ -100,8 +100,19 @@ public static class AttachmentStreamSnapshot
                     filled += read;
                 }
 
-                yield return AttachmentProtocol.CreateChunk(manifest, chunkIndex, buffer.AsSpan(0, expectedLength));
-                CryptographicOperations.ZeroMemory(buffer.AsSpan(0, expectedLength));
+                var chunk = AttachmentProtocol.CreateChunk(
+                    manifest,
+                    chunkIndex,
+                    buffer.AsSpan(0, expectedLength));
+                try
+                {
+                    yield return chunk;
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(chunk.Data);
+                    CryptographicOperations.ZeroMemory(buffer.AsSpan(0, expectedLength));
+                }
             }
 
             var trailing = await source.ReadAsync(buffer.AsMemory(0, 1), cancellationToken);
