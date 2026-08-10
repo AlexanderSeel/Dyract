@@ -55,6 +55,11 @@ public static class SqliteLocalResetter
                 await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receives;", cancellationToken);
             }
 
+            if (await TableExistsAsync(connection, transaction, "attachment_receive_completions", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receive_completions;", cancellationToken);
+            }
+
             // Delete core user state explicitly in dependency order. The schema/migration ledger
             // is intentionally retained so existing singleton stores remain valid after key rotation.
             await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken);
