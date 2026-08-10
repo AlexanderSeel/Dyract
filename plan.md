@@ -196,7 +196,7 @@ See `docs/signaling.md` and `docs/redis-transient-state.md`.
 
 ## 6. Phase 2 — local mobile foundation
 
-**Status: Android and iOS shipping-app code both compile in Release CI; physical/runtime validation remains.**
+**Status: shipping mobile foundation implemented; latest attachment file-lifecycle additions still require current Android/iOS CI and physical runtime validation.**
 
 ### Identity/security
 
@@ -209,23 +209,24 @@ See `docs/signaling.md` and `docs/redis-transient-state.md`.
 - [x] identity fingerprint/Peer ID UI.
 - [x] Android Release CI.
 - [x] iOS `iossimulator-arm64` Release CI on macOS 26 / Xcode 26.6.
-- [x] current Android and iOS shipping builds are warning-clean.
+- [x] pre-attachment-lifecycle Android and iOS shipping builds were warning-clean.
 - [x] repository stolen-device/recovery security analysis.
 - [x] explicit two-step destructive identity/local-data reset.
 - [x] reset remains reachable when an initialized identity is unreadable.
 - [x] persisted pending-reset marker resumes interrupted reset before normal initialization.
-- [x] reset rotates identity/local-data secrets and clears identity-bound SQLite/capability/directory state.
+- [x] reset rotates identity/local-data secrets and clears identity-bound SQLite/capability/directory/app-owned attachment state.
 
 Remaining:
 
+- [ ] current Android/iOS Release CI validation for the latest attachment lifecycle additions.
 - [ ] physical-device iOS runtime validation.
 - [ ] physical-device QR/camera validation.
-- [ ] physical Android/iOS destructive-reset validation.
+- [ ] physical Android/iOS destructive-reset validation, including app-owned attachment files.
 - [ ] non-exportable platform-native identity-key evaluation.
 - [ ] Secure Enclave evaluation.
 - [ ] encrypted identity export/recovery.
 
-See `docs/device-compromise-recovery.md`.
+See `docs/device-compromise-recovery.md` and `docs/attachments.md`.
 
 ### Encrypted SQLite
 
@@ -264,11 +265,15 @@ See `docs/local-storage-migrations.md` and `docs/device-compromise-recovery.md`.
 - [x] recovery/security status screen with PeerId/fingerprint/protection/recovery state.
 - [x] destructive reset confirmation/recovery flow.
 - [x] compiled XAML bindings for contact/message list templates.
+- [x] provider-safe attachment picker snapshots selected content immediately into the encrypted sender queue without persisting a filesystem/provider path.
+- [x] per-contact pending attachment status/progress with Retry and explicit Cancel controls.
+- [x] app-owned generated receive destination/capacity service registered without connecting production transport.
 
 Remaining:
 
 - [ ] accessibility/polish/localization.
 - [ ] physical iOS UX/runtime validation.
+- [ ] physical Android/iOS attachment picker/provider/low-disk/promotion/retry/cancel validation.
 
 ## 7. Phase 3 — direct connectivity spike
 
@@ -395,7 +400,7 @@ See `docs/reliable-messaging.md`.
 
 ## 11. Phase 7 — attachments
 
-**Status: transport-neutral wire/send/receive/retry/verified-completion foundation implemented; production transport and platform file lifecycle remain.**
+**Status: transport-neutral wire/send/receive/retry/verified-completion and local mobile file lifecycle implemented; production transport, thumbnails and physical-device validation remain.**
 
 Implemented:
 
@@ -427,18 +432,24 @@ Implemented:
 - [x] completion receipts bounded to 64 per sender / 256 globally.
 - [x] exact-scope explicit sender cancellation cascades deletion of its encrypted snapshot/chunks.
 - [x] sender lifetime policy has no silent time-based expiry: state remains until `DYAC`, explicit cancellation or destructive reset.
-- [x] attachment receive/send/maintenance persistence registered in shipping DI without connecting an unproven transport.
-- [x] destructive identity reset clears partial, completed-receipt and sender attachment state while remaining compatible with older schemas.
+- [x] provider-safe mobile picker uses stream reads, bounded inspection and a second exact snapshot/hash pass before encrypted queue commit; provider paths are not retained for retry.
+- [x] mobile sender status projection exposes bounded pending/retry/final-confirmation progress for the selected contact.
+- [x] explicit Retry Now reschedules the existing immutable snapshot without resetting acknowledged chunks; Cancel remains exact-scope and user-confirmed.
+- [x] transport-neutral receive file coordinator enforces capacity -> verified staging -> promotion -> durable `DYAC` completion ordering.
+- [x] generated app-owned Android/iOS staging/final destinations never use the remote filename as a path and recover the promotion-before-`DYAC` crash window by verifying an existing final file.
+- [x] Android/iOS app-data capacity provider implemented; unknown capacity remains fail-by-write rather than pretending space is unlimited.
+- [x] iOS app-owned attachment data is marked to skip cloud backup before completion is accepted.
+- [x] attachment receive/send/status/maintenance/file-lifecycle services registered in shipping DI without connecting an unproven transport.
+- [x] destructive identity reset clears partial/completed/sender attachment database state and app-owned staged/promoted files while retaining the resumable reset marker on file-removal failure.
+- [x] repository tests cover stream snapshot integrity/change detection, sender status/retry/cancel state and receive capacity/promotion/final-ACK ordering.
 
 Remaining:
 
 - [ ] chunked direct-transfer integration through the proven production peer transport inside authenticated sessions.
-- [ ] platform-specific promotion/generated-destination behavior after verified staging succeeds.
-- [ ] mobile free-space checks in addition to database reservation quotas.
-- [ ] mobile file picker/provider permission and lifecycle handling.
-- [ ] user-visible sender pending/retry/cancel UX; any future time expiry must be explicit rather than silent.
-- [ ] thumbnails with safe untrusted-content handling.
-- [ ] Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion, cancel and reset validation.
+- [ ] current Android/iOS Release CI validation for the latest platform-specific attachment lifecycle additions.
+- [ ] thumbnails/previews with safe untrusted-content handling.
+- [ ] physical Android/iOS picker/provider permission/lifecycle validation.
+- [ ] physical Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion, retry/cancel and reset validation.
 
 See `docs/attachments.md` and `docs/attachment-sender-lifecycle.md`.
 
@@ -517,4 +528,4 @@ Transport-dependent product work remains gated by physical evidence.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
 10. Deploy/validate the production secret manager plus observability retention/access and PostgreSQL backup/PITR restore drills; run external coverage-guided fuzz campaigns and continue platform-native key evaluation plus independent security/cryptographic review in parallel.
-11. Continue attachment platform destination/free-space handling and mobile sender pending/retry/cancel UX without connecting it to an unproven production transport.
+11. Validate the new attachment picker/provider, free-space, staging/promotion, retry/cancel and reset lifecycle in current Android/iOS Release CI and on physical devices; implement thumbnails only after defining a safe untrusted-content decoding boundary.
