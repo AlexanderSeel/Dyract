@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Dyract.Protocol;
 using Xunit;
@@ -61,6 +62,27 @@ public sealed class AttachmentApplicationFrameProtocolTests
 
         Assert.Throws<InvalidDataException>(() =>
             AttachmentProtocol.ValidateChunk(manifest, structurallyDecoded.Chunk));
+    }
+
+    [Fact]
+    public void ChunkFrame_DecoderRejectsNegativeIndexAndOffset()
+    {
+        var manifest = AttachmentProtocol.CreateManifest(
+            "negative.bin",
+            null,
+            1,
+            new byte[SHA256.HashSizeInBytes]);
+        var encoded = AttachmentApplicationFrameProtocol.Encode(
+            new AttachmentChunkApplicationFrame(
+                AttachmentProtocol.CreateChunk(manifest, 0, new byte[] { 0x42 })));
+
+        var negativeIndex = encoded.ToArray();
+        BinaryPrimitives.WriteInt32BigEndian(negativeIndex.AsSpan(22, sizeof(int)), -1);
+        Assert.Throws<InvalidDataException>(() => AttachmentApplicationFrameProtocol.Decode(negativeIndex));
+
+        var negativeOffset = encoded.ToArray();
+        BinaryPrimitives.WriteInt64BigEndian(negativeOffset.AsSpan(26, sizeof(long)), -1);
+        Assert.Throws<InvalidDataException>(() => AttachmentApplicationFrameProtocol.Decode(negativeOffset));
     }
 
     [Fact]
