@@ -35,6 +35,16 @@ public static class SqliteLocalResetter
         {
             // Attachment tables were introduced after the original local schema. A pending
             // reset from an older app version must still be completable before migrations run.
+            if (await TableExistsAsync(connection, transaction, "attachment_send_chunks", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "DELETE FROM attachment_send_chunks;", cancellationToken);
+            }
+
+            if (await TableExistsAsync(connection, transaction, "attachment_sends", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "DELETE FROM attachment_sends;", cancellationToken);
+            }
+
             if (await TableExistsAsync(connection, transaction, "attachment_receive_chunks", cancellationToken))
             {
                 await ExecuteAsync(connection, transaction, "DELETE FROM attachment_receive_chunks;", cancellationToken);
