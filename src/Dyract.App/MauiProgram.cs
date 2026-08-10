@@ -59,6 +59,11 @@ public static class MauiProgram
             var localStore = services.GetRequiredService<ILocalStore>();
             return new SqliteAttachmentSendStore(InstallationResetService.LocalDatabasePath, keyProvider, localStore);
         });
+        builder.Services.AddSingleton<SqliteAttachmentSendMaintenance>(services =>
+        {
+            var localStore = services.GetRequiredService<ILocalStore>();
+            return new SqliteAttachmentSendMaintenance(InstallationResetService.LocalDatabasePath, localStore);
+        });
         builder.Services.AddSingleton<IIncomingMessageStore>(services =>
             services.GetRequiredService<SqliteIncomingMessageStore>());
         builder.Services.AddSingleton<IOutgoingDeliveryStore>(services =>
