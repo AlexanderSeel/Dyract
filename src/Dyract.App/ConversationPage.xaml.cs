@@ -4,8 +4,33 @@ using Dyract.Client;
 using Dyract.Protocol;
 using Dyract.Storage;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
+using Microsoft.Maui.Storage;
 
 namespace Dyract.App;
+
+public sealed record PendingAttachmentView(AttachmentSendStatus Status)
+{
+    public string FileName => Status.Manifest.FileName;
+
+    public string StatusText => Status.WaitingForCompletion
+        ? "Waiting for final confirmation"
+        : Status.LastFailure is not null
+            ? "Retry scheduled after a delivery error"
+            : Status.Attempts > 0
+                ? "Retry scheduled"
+                : "Pending delivery";
+
+    public string DetailText => Status.WaitingForCompletion
+        ? $"{FormatBytes(Status.Manifest.SizeBytes)} • all {Status.TotalChunks} chunks confirmed"
+        : $"{FormatBytes(Status.Manifest.SizeBytes)} • {Status.AcknowledgedChunks}/{Status.TotalChunks} chunks confirmed";
+
+    private static string FormatBytes(long value)
+        => value >= 1024L * 1024L
+            ? $"{value / (1024d * 1024d):0.#} MB"
+            : value >= 1024
+                ? $"{value / 1024d:0.#} KB"
+                : $"{value} B";
+}
 
 public partial class ConversationPage : ContentPage
 {
@@ -15,6 +40,10 @@ public partial class ConversationPage : ContentPage
     private readonly IIdentityVault _identityVault;
     private readonly IIssuedCapabilityStore _issuedCapabilityStore;
     private readonly IDirectoryService _directoryService;
+    private readonly SqliteAttachmentSendStore _attachmentSendStore;
+    private readonly SqliteAttachmentSendStatusStore _attachmentStatusStore;
+    private readonly SqliteAttachmentSendMaintenance _attachmentMaintenance;
+    private readonly IAttachmentStorageCapacity _attachmentStorageCapacity;
     private readonly LocalContact _contact;
     private LocalConversation? _conversation;
     private ContactCapability? _issuedCapability;
@@ -24,12 +53,18 @@ public partial class ConversationPage : ContentPage
     private bool _resolving;
     private bool _creatingPairing;
     private bool _revokingGrant;
+    private bool _attaching;
+    private bool _attachmentActionBusy;
 
     public ConversationPage(
         ILocalStore localStore,
         IIdentityVault identityVault,
         IIssuedCapabilityStore issuedCapabilityStore,
         IDirectoryService directoryService,
+        SqliteAttachmentSendStore attachmentSendStore,
+        SqliteAttachmentSendStatusStore attachmentStatusStore,
+        SqliteAttachmentSendMaintenance attachmentMaintenance,
+        IAttachmentStorageCapacity attachmentStorageCapacity,
         LocalContact contact)
     {
         InitializeComponent();
@@ -37,6 +72,10 @@ public partial class ConversationPage : ContentPage
         _identityVault = identityVault ?? throw new ArgumentNullException(nameof(identityVault));
         _issuedCapabilityStore = issuedCapabilityStore ?? throw new ArgumentNullException(nameof(issuedCapabilityStore));
         _directoryService = directoryService ?? throw new ArgumentNullException(nameof(directoryService));
+        _attachmentSendStore = attachmentSendStore ?? throw new ArgumentNullException(nameof(attachmentSendStore));
+        _attachmentStatusStore = attachmentStatusStore ?? throw new ArgumentNullException(nameof(attachmentStatusStore));
+        _attachmentMaintenance = attachmentMaintenance ?? throw new ArgumentNullException(nameof(attachmentMaintenance));
+        _attachmentStorageCapacity = attachmentStorageCapacity ?? throw new ArgumentNullException(nameof(attachmentStorageCapacity));
         _contact = contact ?? throw new ArgumentNullException(nameof(contact));
 
         Title = contact.DisplayName;
@@ -58,6 +97,7 @@ public partial class ConversationPage : ContentPage
             }
 
             await LoadMessagesAsync();
+            await LoadPendingAttachmentsAsync();
             await RefreshIssuedGrantStateAsync();
             UpdateReachabilityButton();
         }
@@ -65,6 +105,7 @@ public partial class ConversationPage : ContentPage
         {
             ConversationStatusLabel.Text = $"Conversation unavailable: {exception.Message}";
             SendButton.IsEnabled = false;
+            AttachButton.IsEnabled = false;
             CopyPairingResponseButton.IsEnabled = false;
             ShowPairingQrButton.IsEnabled = false;
             ResolveContactButton.IsEnabled = false;
@@ -80,6 +121,7 @@ public partial class ConversationPage : ContentPage
         _conversation = await _localStore.GetOrCreateConversationAsync(_contact.PeerId);
         _initialized = true;
         SendButton.IsEnabled = true;
+        AttachButton.IsEnabled = true;
         CopyPairingResponseButton.IsEnabled = true;
         ShowPairingQrButton.IsEnabled = true;
         UpdateReachabilityButton();
@@ -100,6 +142,21 @@ public partial class ConversationPage : ContentPage
         {
             MessagesView.ScrollTo(messages[^1], position: ScrollToPosition.End, animate: false);
         }
+    }
+
+    private async Task LoadPendingAttachmentsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_ownPeerId))
+        {
+            PendingAttachmentsView.ItemsSource = null;
+            PendingAttachmentsSection.IsVisible = false;
+            return;
+        }
+
+        var statuses = await _attachmentStatusStore.GetPendingAsync(_ownPeerId, _contact.PeerId);
+        var items = statuses.Select(status => new PendingAttachmentView(status)).ToList();
+        PendingAttachmentsView.ItemsSource = items;
+        PendingAttachmentsSection.IsVisible = items.Count > 0;
     }
 
     private async Task RefreshIssuedGrantStateAsync()
@@ -319,6 +376,154 @@ public partial class ConversationPage : ContentPage
         }
     }
 
+    private async void OnAttachClicked(object? sender, EventArgs e)
+    {
+        if (!_initialized || _attaching || string.IsNullOrWhiteSpace(_ownPeerId))
+        {
+            return;
+        }
+
+        _attaching = true;
+        UpdateAttachmentButtons();
+        try
+        {
+            var picked = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Choose attachment"
+            });
+            if (picked is null)
+            {
+                ConversationStatusLabel.Text = "Attachment selection cancelled.";
+                return;
+            }
+
+            var fileName = string.IsNullOrWhiteSpace(picked.FileName)
+                ? "attachment.bin"
+                : picked.FileName.Trim();
+            var contentType = NormalizeContentType(picked.ContentType);
+
+            AttachmentManifest manifest;
+            await using (var inspect = await picked.OpenReadAsync())
+            {
+                manifest = await AttachmentStreamSnapshot.InspectAsync(
+                    inspect,
+                    fileName,
+                    contentType);
+            }
+
+            var availableBytes = await _attachmentStorageCapacity.GetAvailableBytesAsync();
+            if (availableBytes is long available && available < manifest.SizeBytes)
+            {
+                ConversationStatusLabel.Text =
+                    $"Not enough local storage to queue {fileName}. Free space is below the {PendingAttachmentView.FormatBytesForUi(manifest.SizeBytes)} snapshot size.";
+                return;
+            }
+
+            await using (var replay = await picked.OpenReadAsync())
+            {
+                await _attachmentSendStore.QueueAsync(
+                    _ownPeerId,
+                    _contact.PeerId,
+                    manifest,
+                    AttachmentStreamSnapshot.ReadChunksAsync(replay, manifest));
+            }
+
+            await LoadPendingAttachmentsAsync();
+            ConversationStatusLabel.Text =
+                $"{fileName} was encrypted into the local sender queue. Production attachment transport is not connected yet.";
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Attachment could not be queued: {exception.Message}";
+        }
+        finally
+        {
+            _attaching = false;
+            UpdateAttachmentButtons();
+        }
+    }
+
+    private async void OnRetryAttachmentClicked(object? sender, EventArgs e)
+    {
+        if (_attachmentActionBusy || sender is not Button { CommandParameter: PendingAttachmentView item })
+        {
+            return;
+        }
+
+        _attachmentActionBusy = true;
+        UpdateAttachmentButtons();
+        try
+        {
+            var status = item.Status;
+            if (await _attachmentMaintenance.RetryNowAsync(
+                    status.SenderPeerId,
+                    status.RecipientPeerId,
+                    status.Manifest.AttachmentId))
+            {
+                ConversationStatusLabel.Text = status.WaitingForCompletion
+                    ? $"{item.FileName} final-confirmation probe was scheduled immediately."
+                    : $"{item.FileName} was scheduled for immediate retry.";
+            }
+            else
+            {
+                ConversationStatusLabel.Text = "Attachment is no longer pending.";
+            }
+
+            await LoadPendingAttachmentsAsync();
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Attachment retry could not be scheduled: {exception.Message}";
+        }
+        finally
+        {
+            _attachmentActionBusy = false;
+            UpdateAttachmentButtons();
+        }
+    }
+
+    private async void OnCancelAttachmentClicked(object? sender, EventArgs e)
+    {
+        if (_attachmentActionBusy || sender is not Button { CommandParameter: PendingAttachmentView item })
+        {
+            return;
+        }
+
+        var confirmed = await DisplayAlertAsync(
+            "Cancel attachment?",
+            $"Remove the encrypted local sender snapshot for {item.FileName}? This is explicit cancellation; Dyract never silently expires pending attachments.",
+            "Cancel attachment",
+            "Keep");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _attachmentActionBusy = true;
+        UpdateAttachmentButtons();
+        try
+        {
+            var status = item.Status;
+            var removed = await _attachmentMaintenance.CancelAsync(
+                status.SenderPeerId,
+                status.RecipientPeerId,
+                status.Manifest.AttachmentId);
+            ConversationStatusLabel.Text = removed
+                ? $"{item.FileName} was cancelled and its encrypted sender snapshot was removed."
+                : "Attachment is no longer pending.";
+            await LoadPendingAttachmentsAsync();
+        }
+        catch (Exception exception)
+        {
+            ConversationStatusLabel.Text = $"Attachment cancellation failed: {exception.Message}";
+        }
+        finally
+        {
+            _attachmentActionBusy = false;
+            UpdateAttachmentButtons();
+        }
+    }
+
     private async void OnSendClicked(object? sender, EventArgs e)
         => await QueueMessageAsync();
 
@@ -364,6 +569,11 @@ public partial class ConversationPage : ContentPage
         }
     }
 
+    private void UpdateAttachmentButtons()
+    {
+        AttachButton.IsEnabled = _initialized && !_attaching && !_attachmentActionBusy;
+    }
+
     private void UpdateReachabilityButton()
     {
         ResolveContactButton.IsEnabled =
@@ -380,6 +590,44 @@ public partial class ConversationPage : ContentPage
             !_revokingGrant &&
             _issuedCapability is not null &&
             _directoryService.ConfiguredBaseUri is not null;
+    }
+
+    private static string? NormalizeContentType(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            return null;
+        }
+
+        var candidate = contentType.Split(';', 2)[0].Trim();
+        var slash = candidate.IndexOf('/');
+        if (candidate.Length > AttachmentProtocol.MaximumContentTypeLength ||
+            slash <= 0 || slash != candidate.LastIndexOf('/') || slash == candidate.Length - 1)
+        {
+            return null;
+        }
+
+        return IsMimeToken(candidate.AsSpan(0, slash)) && IsMimeToken(candidate.AsSpan(slash + 1))
+            ? candidate
+            : null;
+    }
+
+    private static bool IsMimeToken(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (!char.IsAsciiLetterOrDigit(character) && character is not '!' and not '#' and not '$' and not '&' and not '^' and not '_' and not '.' and not '+' and not '-')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string GetPairingStateText(LocalContact contact)
