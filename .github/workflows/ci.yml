@@ -41,6 +41,13 @@ jobs:
       - name: Build
         run: dotnet build Dyract.slnx --configuration Release --no-restore
 
+      - name: Stateful fuzz harness smoke
+        run: >
+          dotnet run --project fuzz/Dyract.Protocol.Fuzz/Dyract.Protocol.Fuzz.csproj
+          --configuration Release
+          --no-build
+          -- --self-test
+
       - name: Test
         run: dotnet test Dyract.slnx --configuration Release --no-build
 
