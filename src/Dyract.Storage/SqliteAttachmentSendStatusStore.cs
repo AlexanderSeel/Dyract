@@ -143,8 +143,8 @@ public sealed class SqliteAttachmentSendStatusStore
                         Convert.ToHexString(sha256).ToLowerInvariant());
                     AttachmentProtocol.ValidateManifest(manifest);
 
-                    var totalChunks = reader.GetInt32(12);
-                    var acknowledgedChunks = reader.GetInt32(13);
+                    var totalChunks = checked((int)reader.GetInt64(12));
+                    var acknowledgedChunks = checked((int)reader.GetInt64(13));
                     if (totalChunks != manifest.ChunkCount || acknowledgedChunks < 0 || acknowledgedChunks > totalChunks)
                     {
                         throw new InvalidDataException("Stored attachment sender progress is inconsistent with its manifest.");
