@@ -19,13 +19,16 @@ public sealed class AppOwnedAttachmentStorage :
     IAttachmentStorageCapacity,
     IAttachmentReceiveDestinationFactory
 {
+    public static string RootDirectoryPath =>
+        Path.Combine(FileSystem.AppDataDirectory, "attachments");
+
     private readonly string _rootDirectory;
     private readonly string _stagingDirectory;
     private readonly string _receivedDirectory;
 
     public AppOwnedAttachmentStorage()
     {
-        _rootDirectory = Path.Combine(FileSystem.AppDataDirectory, "attachments");
+        _rootDirectory = RootDirectoryPath;
         _stagingDirectory = Path.Combine(_rootDirectory, "staging");
         _receivedDirectory = Path.Combine(_rootDirectory, "received");
     }
