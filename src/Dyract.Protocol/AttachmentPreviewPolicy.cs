@@ -274,7 +274,7 @@ public static class AttachmentPreviewPolicy
         width = 0;
         height = 0;
 
-        if (content.Length < 24 ||
+        if (content.Length < 29 ||
             !content[..PngSignature.Length].SequenceEqual(PngSignature) ||
             BinaryPrimitives.ReadUInt32BigEndian(content.Slice(8, 4)) != 13 ||
             !content.Slice(12, 4).SequenceEqual("IHDR"u8))
@@ -284,7 +284,18 @@ public static class AttachmentPreviewPolicy
 
         var rawWidth = BinaryPrimitives.ReadUInt32BigEndian(content.Slice(16, 4));
         var rawHeight = BinaryPrimitives.ReadUInt32BigEndian(content.Slice(20, 4));
-        if (rawWidth is 0 or > int.MaxValue || rawHeight is 0 or > int.MaxValue)
+        var bitDepth = content[24];
+        var colorType = content[25];
+        var compressionMethod = content[26];
+        var filterMethod = content[27];
+        var interlaceMethod = content[28];
+
+        if (rawWidth is 0 or > int.MaxValue ||
+            rawHeight is 0 or > int.MaxValue ||
+            !IsValidPngBitDepth(colorType, bitDepth) ||
+            compressionMethod != 0 ||
+            filterMethod != 0 ||
+            interlaceMethod > 1)
         {
             return false;
         }
@@ -293,6 +304,17 @@ public static class AttachmentPreviewPolicy
         height = checked((int)rawHeight);
         return true;
     }
+
+    private static bool IsValidPngBitDepth(byte colorType, byte bitDepth)
+        => colorType switch
+        {
+            0 => bitDepth is 1 or 2 or 4 or 8 or 16,
+            2 => bitDepth is 8 or 16,
+            3 => bitDepth is 1 or 2 or 4 or 8,
+            4 => bitDepth is 8 or 16,
+            6 => bitDepth is 8 or 16,
+            _ => false
+        };
 
     private static bool TryReadJpegDimensions(ReadOnlySpan<byte> content, out int width, out int height)
     {
@@ -356,14 +378,19 @@ public static class AttachmentPreviewPolicy
 
             if (IsStartOfFrameMarker(marker))
             {
-                if (segmentLength < 8)
+                if (segmentLength < 11)
                 {
                     return false;
                 }
 
                 var rawHeight = BinaryPrimitives.ReadUInt16BigEndian(content.Slice(offset + 3, 2));
                 var rawWidth = BinaryPrimitives.ReadUInt16BigEndian(content.Slice(offset + 5, 2));
-                if (rawWidth == 0 || rawHeight == 0)
+                var componentCount = content[offset + 7];
+                var expectedSegmentLength = 8 + (3 * componentCount);
+                if (rawWidth == 0 ||
+                    rawHeight == 0 ||
+                    componentCount == 0 ||
+                    segmentLength != expectedSegmentLength)
                 {
                     return false;
                 }
