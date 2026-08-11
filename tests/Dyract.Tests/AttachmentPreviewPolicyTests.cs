@@ -18,21 +18,21 @@ public sealed class AttachmentPreviewPolicyTests
 
         Assert.True(result.IsAllowed);
         Assert.Equal(AttachmentPreviewRejectionReason.None, result.RejectionReason);
-        Assert.NotNull(result.Source);
-        Assert.Equal(AttachmentRasterPreviewFormat.Png, result.Source.Format);
-        Assert.Equal(640, result.Source.PixelWidth);
-        Assert.Equal(480, result.Source.PixelHeight);
-        Assert.Equal(data.Length, result.Source.Length);
+        var source = Assert.IsType<VerifiedAttachmentPreviewSource>(result.Source);
+        Assert.Equal(AttachmentRasterPreviewFormat.Png, source.Format);
+        Assert.Equal(640, source.PixelWidth);
+        Assert.Equal(480, source.PixelHeight);
+        Assert.Equal(data.Length, source.Length);
 
-        using (var verified = result.Source.OpenRead())
+        using (var verified = source.OpenRead())
         using (var copy = new MemoryStream())
         {
             await verified.CopyToAsync(copy);
             Assert.Equal(data, copy.ToArray());
         }
 
-        result.Source.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => result.Source.OpenRead());
+        source.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => source.OpenRead());
     }
 
     [Fact]
@@ -45,11 +45,11 @@ public sealed class AttachmentPreviewPolicyTests
         var result = await AttachmentPreviewPolicy.InspectCompletedAsync(stream, manifest);
 
         Assert.True(result.IsAllowed);
-        Assert.NotNull(result.Source);
-        Assert.Equal(AttachmentRasterPreviewFormat.Jpeg, result.Source.Format);
-        Assert.Equal(1920, result.Source.PixelWidth);
-        Assert.Equal(1080, result.Source.PixelHeight);
-        result.Source.Dispose();
+        var source = Assert.IsType<VerifiedAttachmentPreviewSource>(result.Source);
+        Assert.Equal(AttachmentRasterPreviewFormat.Jpeg, source.Format);
+        Assert.Equal(1920, source.PixelWidth);
+        Assert.Equal(1080, source.PixelHeight);
+        source.Dispose();
     }
 
     [Fact]
