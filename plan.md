@@ -56,6 +56,7 @@ docs/
   reliable-messaging.md
   signaling.md
   attachments.md
+  attachment-previews.md
   attachment-sender-lifecycle.md
   transport-spike.md
   local-storage-migrations.md
@@ -400,7 +401,7 @@ See `docs/reliable-messaging.md`.
 
 ## 11. Phase 7 — attachments
 
-**Status: transport-neutral wire/send/receive/retry/verified-completion and local mobile file lifecycle implemented; production transport, thumbnails and physical-device validation remain.**
+**Status: transport-neutral wire/send/receive/retry/verified-completion, local mobile file lifecycle and the automatic-preview admission boundary are implemented; production transport, platform thumbnail decoding/UI and physical-device validation remain.**
 
 Implemented:
 
@@ -442,16 +443,19 @@ Implemented:
 - [x] attachment receive/send/status/maintenance/file-lifecycle services registered in shipping DI without connecting an unproven transport.
 - [x] destructive identity reset clears partial/completed/sender attachment database state and app-owned staged/promoted files while retaining the resumable reset marker on file-removal failure.
 - [x] repository tests cover stream snapshot integrity/change detection, sender status/retry/cancel state and receive capacity/promotion/final-ACK ordering.
+- [x] automatic preview pre-decode admission accepts only exact manifest-reverified PNG/JPEG sources up to 8 MiB with MIME/signature agreement, bounded header parsing, dimensions up to 8192 pixels and at most 32,000,000 total pixels.
+- [x] verified preview-source ownership keeps future approved decoders on the exact admitted byte snapshot instead of reopening a path; unsupported/complex content falls back without invalidating the attachment.
+- [x] deterministic preview tests cover supported formats, unsupported active/complex MIME, size/type/signature/hash/truncation/growth/dimension rejection and verified-source disposal.
 
 Remaining:
 
 - [ ] chunked direct-transfer integration through the proven production peer transport inside authenticated sessions.
 - [ ] current Android/iOS Release CI validation for the latest platform-specific attachment lifecycle additions.
-- [ ] thumbnails/previews with safe untrusted-content handling.
+- [ ] reviewed Android/iOS bounded thumbnail decoders and safe UI presentation behind `AttachmentPreviewPolicy`.
 - [ ] physical Android/iOS picker/provider permission/lifecycle validation.
 - [ ] physical Android/iOS interruption, resume, final-ACK-loss, low-disk, malicious-frame/manifest, staging/promotion, retry/cancel and reset validation.
 
-See `docs/attachments.md` and `docs/attachment-sender-lifecycle.md`.
+See `docs/attachments.md`, `docs/attachment-previews.md` and `docs/attachment-sender-lifecycle.md`.
 
 ## 12. Phase 8 — production infrastructure
 
@@ -528,4 +532,4 @@ Transport-dependent product work remains gated by physical evidence.
 8. Deploy and validate production edge/network DDoS/WAF/global abuse controls before horizontal public deployment.
 9. Design and implement reviewed encrypted identity recovery/export/restore without plaintext/cloud-escrow key handling; destructive reset is complete.
 10. Deploy/validate the production secret manager plus observability retention/access and PostgreSQL backup/PITR restore drills; run external coverage-guided fuzz campaigns and continue platform-native key evaluation plus independent security/cryptographic review in parallel.
-11. Validate the new attachment picker/provider, free-space, staging/promotion, retry/cancel and reset lifecycle in current Android/iOS Release CI and on physical devices; implement thumbnails only after defining a safe untrusted-content decoding boundary.
+11. Validate the attachment picker/provider, free-space, staging/promotion, retry/cancel and reset lifecycle in current Android/iOS Release CI and on physical devices; the untrusted-content preview admission boundary is now defined/enforced, so the next repository-side preview step is a reviewed bounded Android/iOS decoder and safe UI integration behind it.
