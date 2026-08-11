@@ -14,9 +14,12 @@ Dyract now has a transport-neutral attachment foundation plus the shipping-app l
 - Android/iOS app-owned generated receive destinations;
 - mobile free-space admission checks when the platform can report capacity;
 - pending/retry/waiting-for-final-confirmation/cancel sender UI;
-- destructive reset of both attachment database state and app-owned staged/final files.
+- destructive reset of both attachment database state and app-owned staged/final files;
+- a decoder-independent automatic-preview admission boundary for bounded, integrity-verified PNG/JPEG candidates.
 
 This still does **not** mean attachments are delivered by the shipping app. The durable attachment outbox is intentionally not connected to the experimental FsWebRTC path. Production peer-transport integration remains gated by physical transport evidence.
+
+Automatic thumbnail decoding is also not connected yet. `AttachmentPreviewPolicy` is the required pre-decode security boundary; see `docs/attachment-previews.md`.
 
 ## Privacy boundary
 
@@ -54,7 +57,7 @@ manifest-bound DYAC completion ACK
 
 `DYRA` and `DYAC` are protocol frames, not encryption layers. A production transport must carry them only inside the identity-authenticated encrypted `DYSE` session.
 
-No filename, content type, hash, chunk or attachment body belongs in normal directory metadata, push payloads or ordinary telemetry.
+No filename, content type, hash, chunk, attachment body or thumbnail content belongs in normal directory metadata, push payloads or ordinary telemetry.
 
 ## Protocol v1 manifest
 
@@ -125,7 +128,7 @@ This matters for Android document providers and other sources where a picker res
 
 No plaintext sender temp file is created. Once queueing succeeds, retries are reconstructed only from the encrypted durable SQLite snapshot, so later provider permission/path changes do not affect retry correctness.
 
-Transient chunk buffers created by `AttachmentStreamSnapshot` are cleared after the consumer advances.
+`AttachmentStreamSnapshot` clears its reusable internal read buffer after copying a chunk into the yielded `AttachmentChunk`. The yielded `chunk.Data` is caller-owned and is **not** cleared by the enumerator after `MoveNext`; consumers remain responsible for the lifetime of any plaintext copies they retain.
 
 ## Chunk geometry and DYRA
 
@@ -404,12 +407,29 @@ Destructive installation reset now removes:
 
 If app-owned file deletion fails, the pending-reset marker remains, so a later startup resumes the destructive reset instead of declaring success with leftover files.
 
+## Automatic preview admission boundary
+
+Remote content is never considered safe merely because the peer session authenticated the sender or because a filename/MIME value says it is an image.
+
+`AttachmentPreviewPolicy` is now the mandatory repository-side admission step before any future automatic raster decoder. It currently allows only `image/png` and `image/jpeg`, and only after:
+
+- exact completed-file length and SHA-256 re-verification against the canonical manifest;
+- independently detected PNG/JPEG signature matching the declared supported MIME;
+- bounded header parsing;
+- an 8 MiB automatic-preview source limit;
+- an 8192-pixel per-dimension limit;
+- a 32,000,000-pixel total-area limit.
+
+The policy does **not** decode pixels. A successful result owns the exact verified byte snapshot as a `VerifiedAttachmentPreviewSource`; future platform decoding must consume that read-only source instead of reopening an unverified path. SVG, HTML, PDF and all other unsupported/complex formats fall back to a generic attachment presentation.
+
+Preview rejection or decoder failure must never invalidate an otherwise valid received attachment. See `docs/attachment-previews.md` for the complete threat model and decoder requirements.
+
 ## Still open
 
 Before attachments are a production feature:
 
 - integrate `DYRA`/`DYAC` with the physically proven production peer transport inside authenticated `DYSE` sessions;
-- add optional thumbnails/previews without decoding untrusted content in a privileged path;
+- implement reviewed Android/iOS bounded thumbnail decoding behind `AttachmentPreviewPolicy` and wire safe UI presentation;
 - validate Android/iOS picker/provider behavior on physical devices;
 - validate low-disk behavior under real filesystem pressure;
 - validate interruption/restart around staging, promotion and the promotion-before-DYAC window;
@@ -419,6 +439,6 @@ Before attachments are a production feature:
 
 ## Repository acceptance
 
-Repository-side acceptance now covers the protocol framing, encrypted durable send/receive state, verified staging, durable completion replay, sender retry/cancel lifecycle, stream-safe provider snapshotting, generated app-owned destination orchestration, free-space admission contracts, mobile pending attachment UI and reset coverage of app-owned attachment files.
+Repository-side acceptance now covers the protocol framing, encrypted durable send/receive state, verified staging, durable completion replay, sender retry/cancel lifecycle, stream-safe provider snapshotting, generated app-owned destination orchestration, free-space admission contracts, mobile pending attachment UI, reset coverage of app-owned attachment files, and a deterministic untrusted-content admission boundary that prevents unsupported/oversized/mismatched/tampered raster inputs from reaching a future decoder through the approved API.
 
-The remaining PLAN items are transport integration, thumbnails and physical Android/iOS validation. No claim is made that the new mobile attachment path has passed physical-device validation or that shipping P2P attachment delivery is connected.
+The remaining PLAN items are transport integration, actual platform thumbnail decoding/UI, current mobile Release validation and physical Android/iOS validation. No claim is made that the new mobile attachment path has passed physical-device validation or that shipping P2P attachment delivery is connected.
