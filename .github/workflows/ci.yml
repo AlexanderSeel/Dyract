@@ -120,3 +120,5 @@ jobs:
           dotnet test tests/Dyract.Tests/Dyract.Tests.csproj
           --configuration Release
           --filter FullyQualifiedName~RedisTransientStateTests
+
+# Validation marker: final parser robustness and distributed request limiting snapshot.
