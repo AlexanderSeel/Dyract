@@ -37,10 +37,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload Android diagnostic harness APK
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dyract-android-transport-harness-apk
           path: experiments/Dyract.Transport.AndroidHarness/bin/Release/**/*.apk
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload compiler diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: transport-build-log
           path: transport-build.log
